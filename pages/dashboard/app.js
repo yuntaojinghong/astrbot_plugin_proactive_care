@@ -240,11 +240,25 @@ async function loadTab(force = false) {
     state.schedules = data.schedules || [];
   }
   if (tab === "overview") {
+    await refreshOverview();
     const data = await api("diagnostics");
     state.checks = data.checks || [];
     state.scheduler = data.scheduler || state.scheduler;
   }
   if (force) renderAll();
+}
+
+/* 概览横幅、指标条依赖 overview 数据；配置变更后必须重拉，否则会一直显示旧状态 */
+async function refreshOverview() {
+  try {
+    const data = await api("overview");
+    if (data && typeof data === "object") {
+      state.overview = data;
+      if (data.scheduler) state.scheduler = data.scheduler;
+    }
+  } catch (error) {
+    /* 刷新失败不打断当前操作，下次进入概览页还会再试 */
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -970,6 +984,7 @@ async function saveControl(node) {
   if (!result) return;
   state.config = result.config || state.config;
   state.warnings = result.warnings || [];
+  await refreshOverview();
   // 只更新受影响的局部，避免整页重绘打断输入
   renderStats();
   renderTopbar();
@@ -1258,6 +1273,7 @@ async function boot() {
     }
     state.config = result.config || state.config;
     state.warnings = result.warnings || [];
+    await refreshOverview();
     renderAll();
   });
 
