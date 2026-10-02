@@ -1,0 +1,1035 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>微光 · 主动关怀 —— 会先开口的 AstrBot 群友</title>
+<meta name="description" content="微光是一个 AstrBot 插件：群聊安静太久、话题断在半截、或者今天还没人说话时，它会结合这个群真实聊过的内容和长期记忆，生成一句自然的主动消息。四种触发方式、四层防骚扰、自带炫酷配置面板，与匿名树洞类插件做了三重隔离。" />
+<meta property="og:title" content="微光 · 主动关怀" />
+<meta property="og:description" content="会先开口的 AstrBot 群友：结合上下文与长期记忆，在群里安静下来的时候主动说一句人话。" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="favicon.png" />
+<style>
+/* ==========================================================================
+   微光 · 落地页
+   深空霓虹风：3D 透视网格 + 极光扫掠 + 粒子网络 + 扫描光束 + 光标聚光。
+   全部原生实现，没有任何外部依赖与字体请求。
+   ========================================================================== */
+
+:root{
+  --bg:#07070e; --bg-2:#0d0d1a; --bg-3:#121024;
+  --panel:rgba(255,255,255,.035); --panel-2:rgba(255,255,255,.06);
+  --line:rgba(255,255,255,.09); --line-2:rgba(255,179,92,.35);
+  --fg:#f3f2fa; --fg-2:#a9a7bd; --fg-3:#6f6d85;
+  --gold:#ffb35c; --violet:#b98cff; --cyan:#5ad1ff; --pink:#ff5fa2;
+  --ok:#46d19b; --danger:#ff6b6b;
+  --radius:16px; --radius-sm:10px;
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans);
+  font-size:15px; line-height:1.75; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+h1,h2,h3{margin:0;line-height:1.25;font-weight:600}
+p{margin:0}
+code,pre{font-family:var(--mono)}
+
+/* ---------- 特效层 ---------- */
+.fx{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.fx-grid{
+  position:absolute;left:-40%;right:-40%;bottom:-18%;height:70%;
+  background-image:linear-gradient(rgba(185,140,255,.17) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(185,140,255,.17) 1px,transparent 1px);
+  background-size:64px 64px;
+  transform:perspective(400px) rotateX(64deg);transform-origin:bottom center;
+  mask-image:linear-gradient(to top,#000 4%,transparent 76%);
+  -webkit-mask-image:linear-gradient(to top,#000 4%,transparent 76%);
+  animation:gridDrift 24s linear infinite;
+}
+@keyframes gridDrift{from{background-position:0 0}to{background-position:0 64px}}
+.fx-aurora{
+  position:absolute;top:-40%;left:-45%;width:95%;height:150%;
+  background:radial-gradient(ellipse at center,rgba(255,179,92,.18),rgba(185,140,255,.12) 45%,transparent 70%);
+  filter:blur(46px);animation:auroraSweep 28s ease-in-out infinite;
+}
+@keyframes auroraSweep{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(58%,7%,0) scale(1.18)}}
+#net{position:absolute;inset:0;width:100%;height:100%;opacity:.7}
+.fx-scan{
+  position:absolute;left:0;right:0;height:220px;
+  background:linear-gradient(to bottom,transparent,rgba(90,209,255,.06),transparent);
+  animation:scanDown 10s linear infinite;
+}
+@keyframes scanDown{from{top:-220px}to{top:100%}}
+.fx-spot{
+  position:absolute;width:520px;height:520px;border-radius:50%;transform:translate(-50%,-50%);
+  background:radial-gradient(circle,rgba(255,179,92,.13),transparent 62%);
+  transition:opacity .4s var(--ease);opacity:0;
+}
+@media (prefers-reduced-motion:reduce){
+  .fx-grid,.fx-aurora,.fx-scan{animation:none}
+  #net,.fx-scan,.fx-spot{display:none}
+  html{scroll-behavior:auto}
+}
+
+/* ---------- 阅读进度 ---------- */
+#progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;
+  background:linear-gradient(90deg,var(--gold),var(--cyan),var(--violet),var(--pink));
+  box-shadow:0 0 12px rgba(255,179,92,.7)}
+
+/* ---------- 导航 ---------- */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:50;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:12px max(20px,calc((100vw - 1180px)/2));
+  backdrop-filter:blur(16px);
+  background:rgba(7,7,14,.62);border-bottom:1px solid transparent;
+  transition:border-color .3s var(--ease),background .3s var(--ease);
+}
+nav.solid{border-bottom-color:var(--line);background:rgba(7,7,14,.9)}
+.nav-brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.12em}
+.nav-brand svg{width:26px;height:26px;flex:none}
+.nav-links{display:flex;gap:4px;flex-wrap:wrap}
+.nav-links a{
+  font-size:13.5px;color:var(--fg-2);padding:6px 12px;border-radius:999px;
+  transition:color .2s var(--ease),background .2s var(--ease);
+}
+.nav-links a:hover{color:var(--fg);background:var(--panel-2)}
+@media(max-width:820px){.nav-links{display:none}}
+
+/* ---------- 通用容器 ---------- */
+.wrap{position:relative;z-index:2;max-width:1180px;margin:0 auto;padding:0 20px}
+section{padding:88px 0;position:relative;z-index:2}
+.sec-head{text-align:center;margin-bottom:44px}
+.sec-head .kicker{
+  display:inline-block;font-size:12px;letter-spacing:.28em;color:var(--gold);
+  text-transform:uppercase;margin-bottom:12px;font-family:var(--mono);
+}
+.sec-head h2{font-size:clamp(24px,3.6vw,36px);letter-spacing:.01em}
+.sec-head p{margin-top:12px;color:var(--fg-2);max-width:62ch;margin-left:auto;margin-right:auto}
+.grad{
+  background:linear-gradient(100deg,var(--gold),var(--cyan),var(--violet));
+  background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:hueSlide 10s linear infinite;
+}
+@keyframes hueSlide{from{background-position:0 50%}to{background-position:200% 50%}}
+
+/* 滚动进场 */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+
+/* ---------- Hero ---------- */
+header.hero{padding:150px 0 70px;text-align:center;position:relative;z-index:2}
+.hero-mark{width:120px;height:120px;margin:0 auto 26px;display:block;
+  filter:drop-shadow(0 0 34px rgba(255,179,92,.55));animation:float 7s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+.hero h1{font-size:clamp(40px,8vw,78px);letter-spacing:.16em;font-weight:700}
+.hero .tagline{margin-top:16px;font-size:clamp(15px,2vw,19px);color:var(--fg-2);max-width:44ch;margin-left:auto;margin-right:auto}
+.hero .tagline b{color:var(--fg)}
+.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:24px}
+.badge{
+  font-size:12px;font-family:var(--mono);padding:4px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg-2);
+}
+.badge.g{border-color:rgba(255,179,92,.4);color:var(--gold)}
+.badge.c{border-color:rgba(90,209,255,.4);color:var(--cyan)}
+
+.cmd{
+  margin:34px auto 0;max-width:560px;display:flex;align-items:center;gap:10px;
+  padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--panel);backdrop-filter:blur(14px);
+}
+.cmd code{flex:1;text-align:left;font-size:13px;color:var(--cyan);overflow-x:auto;white-space:nowrap}
+.cmd button{
+  flex:none;font:inherit;font-size:12.5px;padding:6px 14px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line-2);background:transparent;color:var(--gold);
+  transition:background .2s var(--ease),color .2s var(--ease);
+}
+.cmd button:hover{background:rgba(255,179,92,.12)}
+.hero-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;font-size:14px;padding:11px 22px;
+  border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);
+  cursor:pointer;transition:transform .18s var(--ease),box-shadow .25s var(--ease),border-color .25s var(--ease);
+}
+.btn:hover{transform:translateY(-2px);border-color:var(--line-2)}
+.btn.primary{
+  background:linear-gradient(100deg,var(--gold),var(--violet));border-color:transparent;
+  color:#181206;font-weight:600;box-shadow:0 14px 34px -16px var(--gold);
+}
+
+/* ---------- 数字条 ---------- */
+.counters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:56px}
+.counter{
+  padding:20px 18px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--panel);backdrop-filter:blur(12px);position:relative;overflow:hidden;
+}
+.counter::before{content:"";position:absolute;top:0;left:0;width:36%;height:2px;
+  background:linear-gradient(90deg,var(--gold),transparent)}
+.counter .v{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1.1}
+.counter .k{font-size:12.5px;color:var(--fg-3);margin-top:4px}
+
+/* ---------- 卡片网格 ---------- */
+.grid{display:grid;gap:18px}
+.g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}
+.card{
+  padding:24px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--panel);backdrop-filter:blur(12px);position:relative;overflow:hidden;
+  transition:transform .3s var(--ease),border-color .3s var(--ease),box-shadow .3s var(--ease);
+}
+.card:hover{transform:translateY(-4px);border-color:var(--line-2);box-shadow:0 26px 50px -30px var(--gold)}
+.card h3{font-size:17px;margin-bottom:10px;display:flex;align-items:center;gap:9px}
+.card p{color:var(--fg-2);font-size:14px}
+.card .ico{
+  width:34px;height:34px;flex:none;border-radius:9px;display:grid;place-items:center;
+  border:1px solid var(--line-2);background:rgba(255,179,92,.09);color:var(--gold);
+  font-family:var(--mono);font-size:14px;
+}
+.card ul{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:8px}
+.card li{font-size:13.5px;color:var(--fg-2);padding-left:20px;position:relative}
+.card li::before{content:"";position:absolute;left:3px;top:9px;width:6px;height:6px;border-radius:50%;
+  background:var(--cyan);opacity:.8}
+
+/* ---------- 闸门演示 ---------- */
+.gate-lab{
+  display:grid;grid-template-columns:1.05fr .95fr;gap:20px;align-items:start;
+}
+@media(max-width:900px){.gate-lab{grid-template-columns:1fr}}
+.gate-list{display:grid;gap:10px}
+.gate{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:15px 17px;border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--panel);cursor:pointer;user-select:none;
+  transition:border-color .25s var(--ease),background .25s var(--ease),transform .2s var(--ease);
+}
+.gate:hover{transform:translateX(3px)}
+.gate.blocked{border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.07)}
+.gate .g-name{font-size:14.5px}
+.gate .g-sub{font-size:12px;color:var(--fg-3);margin-top:2px}
+.gate .g-state{font-family:var(--mono);font-size:12px;flex:none;color:var(--ok)}
+.gate.blocked .g-state{color:var(--danger)}
+.gate .g-bar{width:44px;height:22px;border-radius:999px;background:var(--bg-3);
+  border:1px solid var(--line);position:relative;flex:none;transition:background .25s var(--ease)}
+.gate .g-bar i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:var(--fg-3);transition:transform .26s var(--ease),background .26s var(--ease)}
+.gate.on .g-bar{background:linear-gradient(100deg,var(--cyan),var(--violet));border-color:transparent}
+.gate.on .g-bar i{transform:translateX(22px);background:#fff}
+.gate.blocked .g-bar{background:linear-gradient(100deg,var(--danger),var(--pink));border-color:transparent}
+.gate.blocked .g-bar i{transform:translateX(22px);background:#fff}
+
+.verdict{
+  padding:22px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--bg-2);position:sticky;top:86px;
+}
+.verdict .out{
+  font-family:var(--mono);font-size:15px;padding:14px;border-radius:var(--radius-sm);
+  border:1px dashed var(--line);margin-bottom:14px;text-align:center;
+}
+.verdict .out.sent{border-color:rgba(70,209,155,.55);background:rgba(70,209,155,.07);color:var(--ok)}
+.verdict .out.blocked{border-color:rgba(255,107,107,.55);background:rgba(255,107,107,.07);color:var(--danger)}
+.verdict .why{font-size:13.5px;color:var(--fg-2)}
+.verdict .why b{color:var(--fg)}
+.verdict .hint{font-size:12px;color:var(--fg-3);margin-top:12px}
+
+/* ---------- 流水线 ---------- */
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:22px}
+@media(max-width:900px){.flow{grid-template-columns:repeat(3,1fr)}}
+.step{
+  padding:16px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--panel);text-align:center;cursor:pointer;position:relative;
+  transition:border-color .28s var(--ease),transform .28s var(--ease),background .28s var(--ease);
+}
+.step:hover{transform:translateY(-3px)}
+.step.active{border-color:var(--line-2);background:rgba(255,179,92,.09);transform:translateY(-3px)}
+.step .n{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.step .t{font-size:13.5px;margin-top:6px}
+.step.active .n{color:var(--gold)}
+.step::after{
+  content:"";position:absolute;right:-9px;top:50%;width:8px;height:1px;
+  background:var(--line);transform:translateY(-50%);
+}
+.step:last-child::after{display:none}
+@media(max-width:900px){.step:nth-child(3n)::after{display:none}}
+.flow-detail{
+  padding:22px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--bg-2);min-height:132px;
+}
+.flow-detail h3{font-size:16px;margin-bottom:8px}
+.flow-detail p{color:var(--fg-2);font-size:14px}
+.flow-detail code{font-size:12.5px;color:var(--cyan)}
+
+/* ---------- 隔离层 ---------- */
+.iso{display:grid;gap:14px}
+.iso-item{
+  display:flex;gap:16px;align-items:flex-start;padding:20px;
+  border:1px solid var(--line);border-left:3px solid var(--cyan);
+  border-radius:0 var(--radius) var(--radius) 0;background:var(--panel);
+}
+.iso-item .idx{
+  font-family:var(--mono);font-size:13px;color:var(--cyan);flex:none;
+  width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+  border:1px solid rgba(90,209,255,.45);
+}
+.iso-item h3{font-size:15.5px;margin-bottom:6px}
+.iso-item p{font-size:13.5px;color:var(--fg-2)}
+.iso-item em{color:var(--gold);font-style:normal;font-family:var(--mono);font-size:13px}
+
+/* ---------- 面板预览 ---------- */
+.panel-mock{
+  border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+  background:var(--bg-2);box-shadow:0 40px 80px -50px #000;
+}
+.pm-bar{
+  display:flex;align-items:center;gap:10px;padding:11px 15px;
+  border-bottom:1px solid var(--line);background:rgba(255,255,255,.03);
+}
+.pm-dots{display:flex;gap:6px}
+.pm-dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.pm-title{font-size:12.5px;color:var(--fg-3);font-family:var(--mono)}
+.pm-body{padding:16px;display:grid;gap:12px}
+.pm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.pm-stat{padding:12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel)}
+.pm-stat .k{font-size:11px;color:var(--fg-3)}
+.pm-stat .v{font-family:var(--mono);font-size:20px;margin-top:2px}
+.pm-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.pm-tab{font-size:12px;padding:5px 13px;border-radius:999px;border:1px solid var(--line);color:var(--fg-3)}
+.pm-tab.on{background:linear-gradient(100deg,var(--gold),var(--violet));color:#181206;border-color:transparent;font-weight:600}
+.pm-session{
+  padding:14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);
+}
+.pm-session + .pm-session{margin-top:10px}
+.pm-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.pm-id{font-family:var(--mono);font-size:13px}
+.pm-meta{font-size:11.5px;color:var(--fg-3);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
+.pm-tag{font-size:11px;padding:1px 9px;border-radius:999px;border:1px solid var(--line);color:var(--fg-3)}
+.pm-tag.ok{color:var(--ok);border-color:rgba(70,209,155,.45)}
+.pm-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:8px;margin-top:11px}
+.pm-metric{padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.pm-metric .k{font-size:10.5px;color:var(--fg-3)}
+.pm-metric .v{font-family:var(--mono);font-size:13px}
+.pm-caps{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+.pm-cap{font-size:11px;padding:3px 10px;border-radius:7px;border:1px solid var(--line);color:var(--fg-3)}
+.pm-cap.p{border-color:rgba(255,179,92,.45);color:var(--gold)}
+
+/* ---------- 安装步骤 ---------- */
+.steps{display:grid;gap:16px}
+.step-item{
+  display:flex;gap:18px;padding:22px;border:1px solid var(--line);
+  border-radius:var(--radius);background:var(--panel);
+}
+.step-item .num{
+  flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+  font-family:var(--mono);font-size:15px;color:var(--gold);
+  border:1px solid var(--line-2);background:rgba(255,179,92,.08);
+}
+.step-item h3{font-size:16px;margin-bottom:7px}
+.step-item p{font-size:13.5px;color:var(--fg-2)}
+pre.block{
+  margin:11px 0 0;padding:13px 15px;border-radius:var(--radius-sm);
+  border:1px solid var(--line);background:var(--bg);font-size:12.5px;
+  color:var(--cyan);overflow-x:auto;
+}
+
+/* ---------- 支持区 ---------- */
+#support{padding-bottom:100px}
+.support-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.support-card{
+  padding:28px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--panel);text-align:center;position:relative;overflow:hidden;
+  transition:transform .3s var(--ease),border-color .3s var(--ease),box-shadow .3s var(--ease);
+}
+.support-card:hover{transform:translateY(-4px);border-color:var(--line-2);box-shadow:0 30px 60px -34px var(--gold)}
+.support-card h3{font-size:19px;margin-bottom:10px}
+.support-card p{color:var(--fg-2);font-size:13.5px;margin-bottom:18px}
+.qr-wrap{
+  display:inline-block;padding:11px;border-radius:var(--radius);
+  border:1px solid var(--line-2);background:#fff;
+  box-shadow:0 0 0 1px rgba(255,179,92,.18),0 0 46px -14px var(--gold);
+}
+.qr{display:block;width:208px;height:208px;border-radius:8px}
+.qr-cap{margin-top:14px;font-size:12.5px;color:var(--fg-3)}
+.support-note{
+  margin-top:22px;padding:16px 18px;border-radius:var(--radius-sm);
+  border:1px dashed var(--line);background:rgba(255,255,255,.02);
+  font-size:13px;color:var(--fg-2);
+}
+
+/* ---------- 页脚 ---------- */
+footer{
+  position:relative;z-index:2;border-top:1px solid var(--line);
+  padding:34px 0 46px;color:var(--fg-3);font-size:13px;
+}
+.foot-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center}
+.foot-row a{color:var(--fg-2);transition:color .2s var(--ease)}
+.foot-row a:hover{color:var(--gold)}
+.foot-links{display:flex;gap:18px;flex-wrap:wrap}
+
+/* toast */
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translate(-50%,26px);
+  padding:11px 20px;border-radius:10px;border:1px solid var(--line-2);
+  background:rgba(13,13,26,.96);color:var(--gold);font-size:13px;
+  opacity:0;pointer-events:none;transition:all .3s var(--ease);z-index:70;
+}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+
+<div class="fx">
+  <div class="fx-grid"></div>
+  <div class="fx-aurora"></div>
+  <canvas id="net"></canvas>
+  <div class="fx-scan"></div>
+  <div class="fx-spot" id="spot"></div>
+</div>
+
+<nav id="nav">
+  <div class="nav-brand">
+    <svg viewBox="0 0 256 256" aria-hidden="true">
+      <defs>
+        <radialGradient id="ng" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#fffaf0"/>
+          <stop offset="45%" stop-color="#ffb35c" stop-opacity=".7"/>
+          <stop offset="100%" stop-color="#ffb35c" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <circle cx="128" cy="128" r="118" fill="url(#ng)"/>
+      <g fill="none" stroke-linecap="round">
+        <circle cx="128" cy="128" r="88" stroke="#ffb35c" stroke-width="9" stroke-dasharray="187 366" transform="rotate(196 128 128)"/>
+        <circle cx="128" cy="128" r="62" stroke="#b98cff" stroke-width="8" stroke-dasharray="122 268" transform="rotate(20 128 128)"/>
+        <circle cx="128" cy="128" r="40" stroke="#5ad1ff" stroke-width="8" stroke-dasharray="91 161" transform="rotate(250 128 128)"/>
+      </g>
+      <circle cx="128" cy="128" r="16" fill="#fffcf4"/>
+    </svg>
+    <span>微光</span>
+  </div>
+  <div class="nav-links">
+    <a href="#why">为什么</a>
+    <a href="#flow">怎么工作</a>
+    <a href="#gates">防骚扰</a>
+    <a href="#isolation">匿名兼容</a>
+    <a href="#panel">面板</a>
+    <a href="#install">安装</a>
+    <a href="#support">支持</a>
+  </div>
+</nav>
+
+<!-- ============================ Hero ============================ -->
+<header class="hero">
+  <div class="wrap">
+    <svg class="hero-mark" viewBox="0 0 256 256" role="img" aria-label="微光图标">
+      <defs>
+        <radialGradient id="hg" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#fffaf0"/>
+          <stop offset="34%" stop-color="#ffd9a8" stop-opacity=".9"/>
+          <stop offset="72%" stop-color="#ffb35c" stop-opacity=".3"/>
+          <stop offset="100%" stop-color="#ffb35c" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="hv" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#b98cff" stop-opacity=".5"/>
+          <stop offset="100%" stop-color="#b98cff" stop-opacity="0"/>
+        </radialGradient>
+        <clipPath id="sq"><rect width="256" height="256" rx="58"/></clipPath>
+      </defs>
+      <g clip-path="url(#sq)">
+        <rect width="256" height="256" fill="#0a0a14"/>
+        <circle cx="128" cy="128" r="124" fill="url(#hg)"/>
+        <circle cx="116" cy="138" r="96" fill="url(#hv)"/>
+        <circle cx="128" cy="128" r="88" fill="none" stroke="#ffb35c" stroke-opacity=".16"/>
+        <g fill="none" stroke-linecap="round">
+          <circle cx="128" cy="128" r="88" stroke="#ffb35c" stroke-width="5" stroke-dasharray="187 366" transform="rotate(196 128 128)"/>
+          <circle cx="128" cy="128" r="66" stroke="#b98cff" stroke-width="4" stroke-dasharray="129 286" transform="rotate(20 128 128)"/>
+          <circle cx="128" cy="128" r="47" stroke="#5ad1ff" stroke-width="4" stroke-dasharray="107 189" transform="rotate(250 128 128)"/>
+        </g>
+        <circle cx="215" cy="116" r="4" fill="#ffb35c"/>
+        <circle cx="63" cy="142" r="3" fill="#b98cff"/>
+        <circle cx="149" cy="86" r="3" fill="#5ad1ff"/>
+        <circle cx="128" cy="128" r="9" fill="#fffcf4"/>
+      </g>
+    </svg>
+
+    <h1><span class="grad">微光</span></h1>
+    <p class="tagline">
+      让机器人<b>学会先开口</b>。<br />
+      它读完这个群真实聊过的内容，结合长期记忆，<br />
+      在安静下来的时候说一句<b>人话</b>——不是群发模板。
+    </p>
+
+    <div class="badges">
+      <span class="badge g">AstrBot ≥ 4.24.2</span>
+      <span class="badge c">零第三方依赖</span>
+      <span class="badge">本地 SQLite 存储</span>
+      <span class="badge">自带炫酷面板</span>
+      <span class="badge">AGPL-3.0</span>
+    </div>
+
+    <div class="cmd">
+      <code id="cmd-text">git clone https://github.com/yuntaojinghong/astrbot_plugin_proactive_care.git</code>
+      <button id="copy-btn" type="button">复制</button>
+    </div>
+
+    <div class="hero-cta">
+      <a class="btn primary" href="#install">开始安装</a>
+      <a class="btn" href="https://github.com/yuntaojinghong/astrbot_plugin_proactive_care" target="_blank" rel="noopener">GitHub 仓库</a>
+    </div>
+
+    <div class="counters">
+      <div class="counter"><div class="v" data-count="4">0</div><div class="k">种触发方式</div></div>
+      <div class="counter"><div class="v" data-count="4">0</div><div class="k">层防骚扰闸门</div></div>
+      <div class="counter"><div class="v" data-count="3">0</div><div class="k">重匿名隔离</div></div>
+      <div class="counter"><div class="v" data-count="126">0</div><div class="k">个单元测试</div></div>
+      <div class="counter"><div class="v" data-count="0">0</div><div class="k">个第三方依赖</div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ 为什么 ============================ -->
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Why</span>
+      <h2>群冷下去的时候，没人负责开口</h2>
+      <p>大多数「主动消息」插件做的是定时群发同一句文案，结果是被当成广告。微光想解决的是另一件事：让机器人真的接得上话。</p>
+    </div>
+    <div class="grid g3">
+      <div class="card reveal">
+        <h3><span class="ico">01</span>不群发模板</h3>
+        <p>生成时会读取这个群的最近聊天记录与长期记忆，所以每个群收到的话都不一样，也不会和你上一条重复。</p>
+        <ul>
+          <li>参考最近若干条真实群聊</li>
+          <li>与历史发送内容做相似度查重</li>
+          <li>带时间锚点，不会半夜说早安</li>
+        </ul>
+      </div>
+      <div class="card reveal">
+        <h3><span class="ico">02</span>不硬插话</h3>
+        <p>只有群真的冷下来了才有资格开口。触发前先过静默时段、每日上限、冷却、与最后一条真人消息的间隔四道闸门。</p>
+        <ul>
+          <li>连续没人回应会自动闭嘴</li>
+          <li>轮询本身不消耗模型额度</li>
+          <li>每一项都可在面板单独调</li>
+        </ul>
+      </div>
+      <div class="card reveal">
+        <h3><span class="ico">03</span>不忘事</h3>
+        <p>长期记忆单独落库：谁下周要出差、群里在筹备什么、谁不太能吃辣，下次开口时会被合理地带进上下文。</p>
+        <ul>
+          <li>自动攒批抽取，不逐条烧 token</li>
+          <li>归一化去重，同一件事不会存十遍</li>
+          <li>面板里可查看、编辑、删除</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 流水线 ============================ -->
+<section id="flow">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">How it works</span>
+      <h2>一次主动发言的完整链路</h2>
+      <p>点任意一步看它在做什么。</p>
+    </div>
+    <div class="flow reveal" id="flow-steps">
+      <div class="step active" data-step="0"><div class="n">STEP 1</div><div class="t">采集上下文</div></div>
+      <div class="step" data-step="1"><div class="n">STEP 2</div><div class="t">触发判定</div></div>
+      <div class="step" data-step="2"><div class="n">STEP 3</div><div class="t">检索记忆</div></div>
+      <div class="step" data-step="3"><div class="n">STEP 4</div><div class="t">生成消息</div></div>
+      <div class="step" data-step="4"><div class="n">STEP 5</div><div class="t">发送并回写</div></div>
+      <div class="step" data-step="5"><div class="n">STEP 6</div><div class="t">记录与结算</div></div>
+    </div>
+    <div class="flow-detail reveal" id="flow-detail"></div>
+  </div>
+</section>
+
+<!-- ============================ 闸门演示 ============================ -->
+<section id="gates">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Anti-spam</span>
+      <h2>四层防骚扰：点一下看看它会不会开口</h2>
+      <p>下面每一道都是真实判定逻辑。关掉闸门（变成红色）就代表这道条件拦住了这次发言。</p>
+    </div>
+    <div class="gate-lab">
+      <div class="gate-list reveal" id="gate-list"></div>
+      <div class="verdict reveal">
+        <div class="out" id="verdict-out">等待判定…</div>
+        <div class="why" id="verdict-why"></div>
+        <div class="hint">真实实现里还有「最小间隔」与「每日上限」两道零成本闸门先跑，全部通过才会调用模型。所以轮询本身不花钱。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 匿名隔离 ============================ -->
+<section id="isolation">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Coexistence</span>
+      <h2>跟匿名树洞类插件和平共处</h2>
+      <p>两个插件装在一起最怕的是互相打架、或者更糟——把匿名内容泄露出去。微光从数据入口做了三重隔离，不需要对方配合。</p>
+    </div>
+    <div class="iso reveal">
+      <div class="iso-item">
+        <div class="idx">1</div>
+        <div>
+          <h3>只跟踪群聊，从不读取私聊</h3>
+          <p>匿名投稿的原始消息走的是私聊。微光默认完全不开私聊通道，所以在数据层面根本接触不到投稿原文，<em>不存在反匿名化的可能</em>。</p>
+        </div>
+      </div>
+      <div class="iso-item">
+        <div class="idx">2</div>
+        <div>
+          <h3>忽略机器人自己发出的消息</h3>
+          <p>树洞类插件是靠机器人账号把内容转发到群里的，发送者就是机器人自己。这一条规则把转发帖整体挡在统计之外——不会让树洞每发一帖就把空闲计时器清零，<em>空闲唤醒依然能正常触发</em>。</p>
+        </div>
+      </div>
+      <div class="iso-item">
+        <div class="idx">3</div>
+        <div>
+          <h3>昵称池与格式兜底</h3>
+          <p>把树洞用的昵称池填进配置（如 <em>番茄,苹果,橘子</em>），命中即跳过；留空时按内置的「【昵称】正文」格式识别。这类内容不会进记忆库，也不会进生成提示词。</p>
+        </div>
+      </div>
+      <div class="iso-item">
+        <div class="idx">4</div>
+        <div>
+          <h3>不拦截、不吞事件</h3>
+          <p>微光全程不调用消息拦截、不打断事件传播，所以不会影响树洞或任何其它插件的正常工作。两者可以同时运行，互不干扰。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 面板 ============================ -->
+<section id="panel">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Dashboard</span>
+      <h2>自带一块动效面板</h2>
+      <p>基于 AstrBot 原生插件 Pages 机制，在插件详情页直接打开。粒子网络背景、跟随明暗主题、实时倒计时。</p>
+    </div>
+
+    <div class="panel-mock reveal">
+      <div class="pm-bar">
+        <div class="pm-dots"><i></i><i></i><i></i></div>
+        <div class="pm-title">插件 · 微光 · 主动关怀 / dashboard</div>
+      </div>
+      <div class="pm-body">
+        <div class="pm-stats">
+          <div class="pm-stat"><div class="k">生效会话</div><div class="v" style="color:#46d19b">3</div></div>
+          <div class="pm-stat"><div class="k">今日已发</div><div class="v">5</div></div>
+          <div class="pm-stat"><div class="k">被回应率</div><div class="v" style="color:#ffb35c">62%</div></div>
+          <div class="pm-stat"><div class="k">记忆库</div><div class="v">148</div></div>
+          <div class="pm-stat"><div class="k">暂停中</div><div class="v" style="color:#ffc45c">1</div></div>
+        </div>
+
+        <div class="pm-tabs">
+          <span class="pm-tab on">概览</span>
+          <span class="pm-tab">会话</span>
+          <span class="pm-tab">记忆</span>
+          <span class="pm-tab">定时</span>
+          <span class="pm-tab">日志</span>
+          <span class="pm-tab">设置</span>
+        </div>
+
+        <div class="pm-session">
+          <div class="pm-row">
+            <div>
+              <div class="pm-id">读书交流群</div>
+              <div class="pm-meta"><span>aiocqhttp:GroupMessage:867530900</span></div>
+            </div>
+            <span class="pm-tag ok">生效中</span>
+          </div>
+          <div class="pm-metrics">
+            <div class="pm-metric"><div class="k">已静默</div><div class="v">4 小时 12 分</div></div>
+            <div class="pm-metric"><div class="k">下次开口</div><div class="v" style="color:#5ad1ff">还有 38 分钟</div></div>
+            <div class="pm-metric"><div class="k">今日 / 累计</div><div class="v">1 / 27</div></div>
+            <div class="pm-metric"><div class="k">记忆</div><div class="v">63 条</div></div>
+          </div>
+          <div class="pm-caps">
+            <span class="pm-cap p">预览生成</span><span class="pm-cap">立即发送</span>
+            <span class="pm-cap">暂停</span><span class="pm-cap">重命名</span>
+            <span class="pm-cap">看记忆</span><span class="pm-cap">清空上下文</span>
+          </div>
+        </div>
+
+        <div class="pm-session" style="border-left:3px solid #ffc45c">
+          <div class="pm-row">
+            <div>
+              <div class="pm-id">技术摸鱼群</div>
+              <div class="pm-meta"><span>aiocqhttp:GroupMessage:123456789</span></div>
+            </div>
+            <span class="pm-tag" style="color:#ffc45c;border-color:rgba(255,196,92,.45)">已暂停</span>
+          </div>
+          <div class="pm-meta" style="margin-top:10px">
+            <span>连续 3 次主动消息没有人回应，已自动暂停</span>
+          </div>
+          <div class="pm-caps">
+            <span class="pm-cap p">恢复</span><span class="pm-cap">删除</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 安装 ============================ -->
+<section id="install">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Install</span>
+      <h2>三步装好</h2>
+      <p>需要 AstrBot 4.24.2 或更高版本——4.24.2 起才支持插件自带 Pages 面板。</p>
+    </div>
+    <div class="steps">
+      <div class="step-item reveal">
+        <div class="num">1</div>
+        <div>
+          <h3>把插件放进 plugins 目录</h3>
+          <p>在 AstrBot 的 <code>data/plugins</code> 下克隆即可，插件本身没有任何第三方依赖，不需要额外 pip 安装。</p>
+          <pre class="block">cd AstrBot/data/plugins
+git clone https://github.com/yuntaojinghong/astrbot_plugin_proactive_care.git</pre>
+        </div>
+      </div>
+      <div class="step-item reveal">
+        <div class="num">2</div>
+        <div>
+          <h3>在面板里填生效群号</h3>
+          <p>重载插件后进入插件配置。默认总开关是关闭的，且生效群号列表为空——也就是装完不会立刻在任何群里说话。</p>
+          <pre class="block">basic.group_whitelist = 1001,1002   # 建议先只填一个测试群
+basic.enabled         = true        # 确认规则无误后再打开</pre>
+        </div>
+      </div>
+      <div class="step-item reveal">
+        <div class="num">3</div>
+        <div>
+          <h3>先开演练模式观察一两天</h3>
+          <p><code>高级 → 演练模式</code> 打开后，所有主动消息只写进日志和面板，不会真的发出去。你可以先看看它在什么时机、打算说些什么，满意了再关掉。</p>
+          <pre class="block">advanced.dry_run = true     # 只生成不发送
+# 面板「日志」页可以看到每次的触发原因与生成的文案</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 支持 ============================ -->
+<section id="support">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">Support</span>
+      <h2>喜欢就支持一下</h2>
+      <p>插件完全开源、永久免费。如果它让某个群重新热闹了起来，可以让作者知道。</p>
+    </div>
+
+    <div class="support-grid">
+      <div class="support-card reveal">
+        <h3>去点个 Star</h3>
+        <p>最省力的支持方式。Star 多了，插件更容易被需要它的人搜到。</p>
+        <a class="btn primary" href="https://github.com/yuntaojinghong/astrbot_plugin_proactive_care" target="_blank" rel="noopener">打开 GitHub 仓库</a>
+        <div class="support-note" style="text-align:left">
+          遇到问题或想提功能建议，欢迎在仓库开 Issue。反馈时附上这几样，定位会快很多：
+          <ul style="margin:10px 0 0;padding-left:18px;line-height:1.9">
+            <li>日志里那条 <code>[微光]</code> 开头的记录</li>
+            <li>插件配置里的生效群号与总开关状态</li>
+            <li>面板「日志」页里那次发送的触发原因</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="support-card reveal">
+        <h3>微信赞赏码</h3>
+        <p>请作者喝杯咖啡。金额随意，心意为主。</p>
+        <div class="qr-wrap">
+          <img class="qr" src="donate_qr.png" alt="云涛惊鸿的微信赞赏码" width="208" height="208" loading="lazy" />
+        </div>
+        <div class="qr-cap">长按识别，或保存后用微信扫一扫</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-row">
+    <div>微光 · 主动关怀 —— 采用 AGPL-3.0 开源协议</div>
+    <div class="foot-links">
+      <a href="https://github.com/yuntaojinghong/astrbot_plugin_proactive_care" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/yuntaojinghong/astrbot_plugin_proactive_care/issues" target="_blank" rel="noopener">反馈</a>
+      <a href="https://docs.astrbot.app/" target="_blank" rel="noopener">AstrBot 文档</a>
+      <a href="#support">支持作者</a>
+    </div>
+  </div>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+/* ==========================================================================
+   交互脚本：只做视觉与演示，不依赖任何库
+   ========================================================================== */
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- 粒子网络 ---------- */
+(function initNet(){
+  const canvas = document.getElementById('net');
+  if (!canvas || reduceMotion) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let nodes = [], w = 0, h = 0, pointer = { x: -999, y: -999 };
+
+  function resize(){
+    w = window.innerWidth; h = window.innerHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const count = Math.min(110, Math.round((w * h) / 17000));
+    nodes = Array.from({ length: count }, () => ({
+      x: Math.random() * w, y: Math.random() * h,
+      vx: (Math.random() - .5) * .3, vy: (Math.random() - .5) * .3,
+      r: Math.random() * 1.6 + .6
+    }));
+  }
+
+  function frame(){
+    ctx.clearRect(0, 0, w, h);
+    for (const n of nodes){
+      n.x += n.vx; n.y += n.vy;
+      if (n.x < 0 || n.x > w) n.vx *= -1;
+      if (n.y < 0 || n.y > h) n.vy *= -1;
+      const dx = n.x - pointer.x, dy = n.y - pointer.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 150 && d > .1){ n.x += dx / d * .5; n.y += dy / d * .5; }
+    }
+    for (let i = 0; i < nodes.length; i++){
+      for (let j = i + 1; j < nodes.length; j++){
+        const a = nodes[i], b = nodes[j];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d > 138) continue;
+        ctx.strokeStyle = 'rgba(255,179,92,' + ((1 - d / 138) * .3).toFixed(3) + ')';
+        ctx.lineWidth = .6;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+    ctx.fillStyle = 'rgba(90,209,255,.6)';
+    for (const n of nodes){
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('pointermove', (e) => { pointer = { x: e.clientX, y: e.clientY }; });
+  window.addEventListener('pointerleave', () => { pointer = { x: -999, y: -999 }; });
+  resize(); requestAnimationFrame(frame);
+})();
+
+/* ---------- 光标聚光 ---------- */
+(function initSpot(){
+  const spot = document.getElementById('spot');
+  if (!spot || reduceMotion) return;
+  window.addEventListener('pointermove', (e) => {
+    spot.style.opacity = '1';
+    spot.style.left = e.clientX + 'px';
+    spot.style.top = e.clientY + 'px';
+  });
+  window.addEventListener('pointerleave', () => { spot.style.opacity = '0'; });
+})();
+
+/* ---------- 进度条 / 导航实心 ---------- */
+(function initScroll(){
+  const bar = document.getElementById('progress');
+  const nav = document.getElementById('nav');
+  function update(){
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const ratio = max > 0 ? window.scrollY / max : 0;
+    bar.style.width = (ratio * 100).toFixed(2) + '%';
+    nav.classList.toggle('solid', window.scrollY > 24);
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+})();
+
+/* ---------- 滚动进场 + 数字滚动 ---------- */
+(function initReveal(){
+  const items = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window) || reduceMotion){
+    items.forEach((el) => el.classList.add('in'));
+    document.querySelectorAll('[data-count]').forEach((el) => { el.textContent = el.dataset.count; });
+    return;
+  }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('in');
+      io.unobserve(entry.target);
+    });
+  }, { threshold: .12, rootMargin: '0px 0px -40px 0px' });
+  items.forEach((el) => io.observe(el));
+
+  const co = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const el = entry.target;
+      const target = Number(el.dataset.count || 0);
+      const start = performance.now();
+      const duration = 1100;
+      function tick(now){
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(target * eased);
+        if (t < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+      co.unobserve(el);
+    });
+  }, { threshold: .4 });
+  document.querySelectorAll('[data-count]').forEach((el) => co.observe(el));
+})();
+
+/* ---------- 复制安装命令 ---------- */
+(function initCopy(){
+  const btn = document.getElementById('copy-btn');
+  const text = document.getElementById('cmd-text');
+  const toastEl = document.getElementById('toast');
+  let timer = null;
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(timer);
+    timer = setTimeout(() => toastEl.classList.remove('show'), 2000);
+  }
+  btn.addEventListener('click', async () => {
+    const value = text.textContent.trim();
+    try {
+      if (navigator.clipboard && window.isSecureContext){
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+      }
+      toast('已复制到剪贴板');
+    } catch (e) {
+      toast('复制失败，请手动选中');
+    }
+  });
+})();
+
+/* ---------- 流水线详情 ---------- */
+(function initFlow(){
+  const DETAIL = [
+    {
+      t: '采集上下文',
+      p: '每条群消息落库前先过一遍隔离规则：机器人自己转发的（匿名树洞帖）、命中昵称池的、以 / 开头的指令，都会被挡在外面。通过的消息写进 <code>messages</code> 表，同时刷新该会话的「最后一条真人发言时间」。',
+    },
+    {
+      t: '触发判定',
+      p: '调度器每 30 秒走一遍所有会话，按固定优先级挑触发方式：话题追问 &gt; 定时问候 &gt; 空闲唤醒 &gt; 随机关怀。先过静默时段、每日上限、冷却、最小间隔这四道零成本闸门，全部通过才轮到后面几步——所以轮询本身不花一分钱 token。',
+    },
+    {
+      t: '检索记忆',
+      p: '从该会话的记忆库里按「重要度 × 时间衰减 + 与当前话题的二元字组重叠度」排序，取前几条。越久远的记忆排序越靠后但不删除，最近聊到的内容会浮上来。',
+    },
+    {
+      t: '生成消息',
+      p: '把聊天记录、相关记忆、当前时间、以及「为什么现在开口」一起交给模型，附上一段强约束的风格指令。生成后去前缀去引号，再和最近发过的内容做相似度查重，太像就重新生成一次。',
+    },
+    {
+      t: '发送并回写',
+      p: '通过 <code>context.send_message</code> 发到目标会话，同时把这条消息写进自己的上下文表。这样群友回复时，机器人记得自己刚才说过什么——这一步不做，「联系上下文」就是空话。',
+    },
+    {
+      t: '记录与结算',
+      p: '每次发送都留档：触发方式、判断依据、生成文案、是否被回应。发出后进入「等待回应」状态，超过回应窗口仍无真人发言就累加一次沉默计数，连续几次之后该群自动暂停。',
+    },
+  ];
+
+  const steps = document.querySelectorAll('#flow-steps .step');
+  const box = document.getElementById('flow-detail');
+
+  function render(index){
+    const item = DETAIL[index];
+    box.innerHTML = '<h3>' + item.t + '</h3><p>' + item.p + '</p>';
+    box.querySelectorAll('code').forEach((c) => { c.style.fontFamily = 'var(--mono)'; });
+  }
+
+  steps.forEach((step) => {
+    step.addEventListener('click', () => {
+      steps.forEach((s) => s.classList.remove('active'));
+      step.classList.add('active');
+      render(Number(step.dataset.step));
+    });
+  });
+  render(0);
+})();
+
+/* ---------- 闸门演示 ---------- */
+(function initGates(){
+  const GATES = [
+    { id: 'quiet', name: '不在静默时段', sub: '默认 23:30 → 08:00 完全不发言', detail: '当前时间落在允许发言的窗口内。', block: '现在处于静默时段，直接不发。深夜吵醒别人是最容易掉好感的行为。' },
+    { id: 'cap', name: '今日次数没用完', sub: '默认每个会话每天最多 3 条', detail: '今天在这个会话还没发够上限。', block: '今天已经发满上限了，今天不会再开口。' },
+    { id: 'cooldown', name: '距上次超过冷却时间', sub: '默认两次之间至少间隔 120 分钟', detail: '距上次主动发言已经足够久。', block: '刚发过没多久，冷却期内不再打扰。' },
+    { id: 'gap', name: '真人已经安静下来', sub: '默认距最后一条真人消息至少 20 分钟', detail: '群里确实冷下来了，可以开口。', block: '大家还在聊天，这时候插话会很突兀。等真的冷下来再说。' },
+    { id: 'idle', name: '满足空闲唤醒条件', sub: '默认静默 180 分钟', detail: '群聊静默时间已经超过阈值，这正是微光该出场的时候。', block: '才刚安静一会儿，还没到该主动开口的时机。' },
+    { id: 'model', name: '有可用的对话模型', sub: '没配模型就生成不出内容', detail: '模型可用，可以生成这句人话。', block: '没有检测到可用的对话模型，生成必然失败，所以不发。' },
+  ];
+
+  const list = document.getElementById('gate-list');
+  const out = document.getElementById('verdict-out');
+  const why = document.getElementById('verdict-why');
+
+  list.innerHTML = GATES.map((g) => (
+    '<div class="gate on" data-id="' + g.id + '">' +
+      '<div><div class="g-name">' + g.name + '</div><div class="g-sub">' + g.sub + '</div></div>' +
+      '<div style="display:flex;align-items:center;gap:12px">' +
+        '<span class="g-state">通过</span>' +
+        '<span class="g-bar"><i></i></span>' +
+      '</div>' +
+    '</div>'
+  )).join('');
+
+  function evaluate(){
+    const blocked = GATES.filter((g) => {
+      const node = list.querySelector('[data-id="' + g.id + '"]');
+      return node.classList.contains('blocked');
+    });
+    if (!blocked.length){
+      out.className = 'out sent';
+      out.textContent = '开口 ——「大家最近都还好吗」';
+      why.innerHTML = '<b>六道条件全部通过。</b>微光会结合这个群最近聊过的内容和记忆，生成一句自然的话发出去。';
+      return;
+    }
+    const first = blocked[0];
+    out.className = 'out blocked';
+    out.textContent = '沉默 —— 被「' + first.name + '」拦下';
+    why.innerHTML = '<b>' + first.detail + '</b>' + (blocked.length > 1 ? '<br />另外还有 ' + (blocked.length - 1) + ' 道条件也没通过。' : '') + '<br />' + first.block;
+  }
+
+  list.addEventListener('click', (e) => {
+    const node = e.target.closest('.gate');
+    if (!node) return;
+    const isBlocked = node.classList.toggle('blocked');
+    node.classList.toggle('on', !isBlocked);
+    node.querySelector('.g-state').textContent = isBlocked ? '拦截' : '通过';
+    evaluate();
+  });
+
+  evaluate();
+})();
+</script>
+</body>
+</html>

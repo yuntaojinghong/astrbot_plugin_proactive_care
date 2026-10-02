@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: python -m pip install --upgrade pip pytest
+
+      - name: 运行测试
+        run: python -m pytest tests -q
+
+      - name: 打包
+        run: python scripts/build_release.py
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/astrbot_plugin_proactive_care.zip
+            dist/astrbot_plugin_proactive_care.tar.gz
+          generate_release_notes: true
+          body: |
+            ## 安装
+
+            解压后把 `astrbot_plugin_proactive_care` 整个文件夹放进 `AstrBot/data/plugins/`，
+            然后在 WebUI 的插件页重载插件即可。插件没有任何第三方依赖。
+
+            ## 首次使用
+
+            1. 打开插件配置，在「生效群号列表」里填写要启用的群号（建议先只填一个测试群）
+            2. 打开「启用主动消息总开关」
+            3. 建议先把「高级 → 演练模式」打开观察一两天，确认时机和文案都满意后再关掉
+
+            默认情况下一句话都不会发出去，可以放心安装。

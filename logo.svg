@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+  <title>微光 · 主动关怀 插件图标</title>
+  <desc>深空底色上一束正在扩散的微光：明亮的光核，三层不同角度的光弧，以及轨道上的微尘。</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0a14" />
+      <stop offset="100%" stop-color="#161026" />
+    </linearGradient>
+
+    <radialGradient id="glowGold" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffb35c" stop-opacity="0.86" />
+      <stop offset="55%" stop-color="#ffb35c" stop-opacity="0.26" />
+      <stop offset="100%" stop-color="#ffb35c" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glowViolet" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#b98cff" stop-opacity="0.68" />
+      <stop offset="60%" stop-color="#b98cff" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#b98cff" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glowCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#5ad1ff" stop-opacity="0.58" />
+      <stop offset="60%" stop-color="#5ad1ff" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#5ad1ff" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fffaf0" stop-opacity="1" />
+      <stop offset="40%" stop-color="#ffe4be" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#ffe4be" stop-opacity="0" />
+    </radialGradient>
+
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="256" height="256" rx="58" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect width="256" height="256" fill="url(#bg)" />
+
+    <!-- 三层光晕，互相偏心，避免死对称 -->
+    <circle cx="128" cy="128" r="124" fill="url(#glowGold)" />
+    <circle cx="118" cy="136" r="96" fill="url(#glowViolet)" />
+    <circle cx="144" cy="116" r="78" fill="url(#glowCyan)" />
+    <circle cx="128" cy="128" r="46" fill="url(#core)" />
+
+    <!-- 轨道落脚点 -->
+    <circle cx="128" cy="128" r="88" fill="none" stroke="#ffb35c" stroke-opacity="0.16" stroke-width="1" />
+
+    <!-- 三段光弧：用 dasharray 精确截取圆周的一部分 -->
+    <g fill="none" stroke-linecap="round">
+      <circle cx="128" cy="128" r="88" stroke="#ffb35c" stroke-width="4"
+        stroke-dasharray="187.4 365.5" transform="rotate(196 128 128)" />
+      <circle cx="128" cy="128" r="66" stroke="#b98cff" stroke-width="3"
+        stroke-dasharray="129.0 285.7" transform="rotate(20 128 128)" />
+      <circle cx="128" cy="128" r="47" stroke="#5ad1ff" stroke-width="3"
+        stroke-dasharray="106.7 188.6" transform="rotate(250 128 128)" />
+    </g>
+
+    <!-- 轨道微尘 -->
+    <circle cx="215.1" cy="115.8" r="3.8" fill="#ffb35c" />
+    <circle cx="63.4" cy="141.7" r="3.0" fill="#b98cff" />
+    <circle cx="148.6" cy="85.8" r="2.6" fill="#5ad1ff" />
+    <circle cx="84.0" cy="51.8" r="2.2" fill="#ffb35c" opacity="0.85" />
+    <circle cx="178.6" cy="170.4" r="2.0" fill="#b98cff" opacity="0.75" />
+
+    <!-- 内核高光 -->
+    <circle cx="128" cy="128" r="9" fill="#fffcf4" />
+  </g>
+</svg>

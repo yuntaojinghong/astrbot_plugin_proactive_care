@@ -1,0 +1,362 @@
+{
+  "basic": {
+    "description": "基础设置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "启用主动消息总开关",
+        "type": "bool",
+        "default": false,
+        "hint": "默认关闭，避免安装后立刻在群里说话。确认规则无误后再打开。",
+        "obvious_hint": true
+      },
+      "group_whitelist": {
+        "description": "生效群号列表",
+        "type": "list",
+        "default": [],
+        "hint": "留空表示「尚未选定任何群」，插件不会主动发消息。填 'all' 表示所有群。建议先只填一个测试群。"
+      },
+      "enable_private": {
+        "description": "同时允许在私聊中主动发消息",
+        "type": "bool",
+        "default": false,
+        "hint": "关闭时插件完全不读取、不记录任何私聊内容，也就从数据层面杜绝了与匿名树洞类插件的隐私冲突。"
+      },
+      "private_whitelist": {
+        "description": "生效私聊用户 ID 列表",
+        "type": "list",
+        "default": [],
+        "hint": "仅在上一项打开时生效。留空表示不限定。"
+      }
+    }
+  },
+  "isolation": {
+    "description": "隔离与过滤（匿名树洞兼容）",
+    "type": "object",
+    "items": {
+      "ignore_self_sent": {
+        "description": "忽略机器人自己发出的消息",
+        "type": "bool",
+        "default": true,
+        "hint": "匿名树洞等插件是通过机器人账号把内容转发到群里的，这类消息的发送者就是机器人自己。开启本项后它们不会被记录为「群友发言」，也不会进入记忆库与生成提示词。强烈建议保持开启。",
+        "obvious_hint": true
+      },
+      "ignore_nicknames": {
+        "description": "匿名昵称池（命中即视为转述，直接跳过）",
+        "type": "list",
+        "default": [],
+        "hint": "填写匿名树洞设置的昵称池，例如：番茄、苹果、橘子。命中任意一个即跳过该条消息。"
+      },
+      "ignore_patterns": {
+        "description": "忽略正则（消息内容命中即跳过）",
+        "type": "list",
+        "default": [],
+        "hint": "留空时按内置规则识别「【xxx】」格式的转述内容。示例：^【.{1,8}】"
+      },
+      "ignore_builtin": {
+        "description": "启用内置转述格式识别",
+        "type": "bool",
+        "default": true,
+        "hint": "识别以「【昵称】」开头的消息，这是匿名类插件最常见的转发格式"
+      },
+      "ignore_commands": {
+        "description": "忽略以指令前缀开头的消息",
+        "type": "bool",
+        "default": true,
+        "hint": "以 / 开头的消息通常是人与机器人的交互，不代表群聊氛围，不计入上下文"
+      }
+    }
+  },
+  "context": {
+    "description": "上下文",
+    "type": "object",
+    "items": {
+      "context_messages": {
+        "description": "生成时参考的最近消息条数",
+        "type": "int",
+        "default": 20,
+        "slider": {
+          "min": 4,
+          "max": 60,
+          "step": 2
+        }
+      },
+      "context_max_age_minutes": {
+        "description": "上下文有效期（分钟）",
+        "type": "int",
+        "default": 720,
+        "slider": {
+          "min": 30,
+          "max": 4320,
+          "step": 30
+        },
+        "hint": "超过这个时长的历史不再作为上下文，避免把几天前的话题硬拉回来"
+      },
+      "inject_into_context": {
+        "description": "把主动消息回写进对话上下文",
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，群友回复这条主动消息时，机器人能记得自己刚才说过什么，对话才是连贯的。"
+      }
+    }
+  },
+  "trigger": {
+    "description": "触发方式",
+    "type": "object",
+    "items": {
+      "idle_enable": {
+        "description": "空闲唤醒：群聊静默一段时间后跟进",
+        "type": "bool",
+        "default": true
+      },
+      "idle_minutes": {
+        "description": "空闲唤醒：静默多少分钟后触发",
+        "type": "int",
+        "default": 180,
+        "slider": {
+          "min": 10,
+          "max": 1440,
+          "step": 10
+        }
+      },
+      "followup_enable": {
+        "description": "话题追问：机器人提问后无人回应则追问一次",
+        "type": "bool",
+        "default": true
+      },
+      "followup_minutes": {
+        "description": "话题追问：等待多少分钟后追问",
+        "type": "int",
+        "default": 30,
+        "slider": {
+          "min": 5,
+          "max": 360,
+          "step": 5
+        },
+        "hint": "只追问一次，不反复纠缠"
+      },
+      "random_enable": {
+        "description": "随机关怀：每天在允许时段内随机发起",
+        "type": "bool",
+        "default": true
+      },
+      "random_min_per_day": {
+        "description": "随机关怀：每日最少次数",
+        "type": "int",
+        "default": 1,
+        "slider": {
+          "min": 0,
+          "max": 10,
+          "step": 1
+        }
+      },
+      "random_max_per_day": {
+        "description": "随机关怀：每日最多次数",
+        "type": "int",
+        "default": 2,
+        "slider": {
+          "min": 0,
+          "max": 10,
+          "step": 1
+        }
+      },
+      "schedule_enable": {
+        "description": "定时问候：按自定义时刻触发",
+        "type": "bool",
+        "default": false,
+        "hint": "具体时刻在插件的设置面板里可视化编辑"
+      }
+    }
+  },
+  "guard": {
+    "description": "防骚扰",
+    "type": "object",
+    "items": {
+      "quiet_start": {
+        "description": "静默时段开始（HH:MM）",
+        "type": "string",
+        "default": "23:30"
+      },
+      "quiet_end": {
+        "description": "静默时段结束（HH:MM）",
+        "type": "string",
+        "default": "08:00"
+      },
+      "max_per_day": {
+        "description": "每个会话每日上限",
+        "type": "int",
+        "default": 3,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "hint": "所有触发方式合计的上限，优先级最高"
+      },
+      "cooldown_minutes": {
+        "description": "两次主动消息之间的最小间隔（分钟）",
+        "type": "int",
+        "default": 120,
+        "slider": {
+          "min": 10,
+          "max": 1440,
+          "step": 10
+        }
+      },
+      "min_human_gap_minutes": {
+        "description": "距最后一条真人消息的最短间隔（分钟）",
+        "type": "int",
+        "default": 20,
+        "slider": {
+          "min": 0,
+          "max": 360,
+          "step": 5
+        },
+        "hint": "防止大家在聊天时机器人硬插话，只有群真的冷了才开口"
+      },
+      "reply_window_minutes": {
+        "description": "多久之内有人说话算作「被回应」（分钟）",
+        "type": "int",
+        "default": 15,
+        "slider": {
+          "min": 1,
+          "max": 120,
+          "step": 1
+        }
+      },
+      "unanswered_pause": {
+        "description": "连续无回应多少次后自动闭嘴",
+        "type": "int",
+        "default": 3,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "hint": "达到次数后该群自动暂停并记录原因，面板里可手动恢复。这是最后一道保险。"
+      }
+    }
+  },
+  "memory": {
+    "description": "记忆",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用长期记忆",
+        "type": "bool",
+        "default": true
+      },
+      "extract_every": {
+        "description": "每积累多少条群消息抽取一次记忆",
+        "type": "int",
+        "default": 30,
+        "slider": {
+          "min": 5,
+          "max": 200,
+          "step": 5
+        },
+        "hint": "抽取会调用一次模型；调大可降低成本，调小记忆更及时"
+      },
+      "max_inject": {
+        "description": "生成时最多注入多少条记忆",
+        "type": "int",
+        "default": 6,
+        "slider": {
+          "min": 0,
+          "max": 20,
+          "step": 1
+        }
+      },
+      "decay_days": {
+        "description": "记忆半衰期（天）",
+        "type": "int",
+        "default": 30,
+        "slider": {
+          "min": 1,
+          "max": 365,
+          "step": 1
+        },
+        "hint": "越久远的记忆排序越靠后，但不删除。0 表示不做时间衰减"
+      },
+      "auto_cleanup": {
+        "description": "自动清理长期未命中的低价值记忆",
+        "type": "bool",
+        "default": false
+      }
+    }
+  },
+  "llm": {
+    "description": "模型与语气",
+    "type": "object",
+    "items": {
+      "provider_id": {
+        "description": "指定用于生成与记忆抽取的模型 ID",
+        "type": "string",
+        "default": "",
+        "hint": "留空使用当前会话的默认模型。面板「概览」页会列出你已配置的全部模型，点一下就能填进来。"
+      },
+      "style": {
+        "description": "说话风格",
+        "type": "text",
+        "default": "像一个熟悉的群友那样随口接一句。可以分享见闻、抛个轻松的话题、关心一下最近聊到的事。不要提问式骚扰，不要客服腔，不要重复你以前说过的话。",
+        "hint": "这是写给模型的风格指令，可以按你的群氛围自由改"
+      },
+      "max_chars": {
+        "description": "生成文案长度上限（字）",
+        "type": "int",
+        "default": 80,
+        "slider": {
+          "min": 10,
+          "max": 500,
+          "step": 10
+        },
+        "hint": "超长会被截断，防止模型输出小作文"
+      },
+      "temperature": {
+        "description": "随机度",
+        "type": "float",
+        "default": 0.9,
+        "slider": {
+          "min": 0.0,
+          "max": 2.0,
+          "step": 0.1
+        },
+        "hint": "越高越活泼，但飘的可能性也越大"
+      }
+    }
+  },
+  "advanced": {
+    "description": "高级",
+    "type": "object",
+    "items": {
+      "tick_seconds": {
+        "description": "调度轮询间隔（秒）",
+        "type": "int",
+        "default": 30,
+        "slider": {
+          "min": 10,
+          "max": 300,
+          "step": 10
+        },
+        "hint": "轮询本身不消耗模型额度，可以放心调小"
+      },
+      "dry_run": {
+        "description": "演练模式：只生成不发送",
+        "type": "bool",
+        "default": false,
+        "hint": "打开后所有主动消息只写入日志和面板，不会真的发到群里。调参阶段建议先开一会儿。"
+      },
+      "log_level": {
+        "description": "日志级别",
+        "type": "string",
+        "default": "info",
+        "options": [
+          "debug",
+          "info",
+          "warning",
+          "error"
+        ]
+      }
+    }
+  }
+}

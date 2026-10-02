@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>微光 · 主动关怀</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- 背景特效层：全部由 CSS 与一个 canvas 完成，不依赖任何外部库 -->
+    <div class="fx" aria-hidden="true">
+      <div class="fx-grid"></div>
+      <div class="fx-aurora"></div>
+      <canvas id="net"></canvas>
+      <div class="fx-scan"></div>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="sigil" id="sigil" aria-hidden="true"></div>
+        <div class="brand-text">
+          <h1>微光</h1>
+          <p>主动关怀 · 会先开口的群友</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="pill" id="pill-scheduler" title="调度器状态">
+          <i class="dot"></i><span>调度器</span>
+        </div>
+        <div class="pill warn hidden" id="pill-dryrun" title="演练模式：只生成不发送">
+          <i class="dot"></i><span>演练模式</span>
+        </div>
+
+        <label class="switch" title="主动消息总开关">
+          <input type="checkbox" id="master-switch" />
+          <span class="track"><span class="knob"></span></span>
+          <span class="switch-label" id="master-label">已关闭</span>
+        </label>
+
+        <button class="btn ghost" id="btn-refresh" title="重新拉取数据">刷新</button>
+      </div>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+
+    <main id="view" class="view"></main>
+
+    <footer class="foot">
+      <span id="foot-note">数据全部保存在本机 SQLite，不会上传到任何地方。</span>
+      <span class="mono" id="foot-time"></span>
+    </footer>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

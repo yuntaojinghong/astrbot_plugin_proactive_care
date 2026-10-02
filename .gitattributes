@@ -1,0 +1,14 @@
+# 统一按 LF 存储，避免 Windows / Linux 协作时出现满屏换行差异
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.tar.gz binary
+
+# GitHub 语言统计：把页面文件归到网页语言里，别让它们淹没 Python
+pages/** linguist-documentation=false
+docs/** linguist-documentation=false

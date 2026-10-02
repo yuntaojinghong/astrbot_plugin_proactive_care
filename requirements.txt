@@ -1,0 +1,7 @@
+# 微光 · 主动关怀 —— 无第三方依赖
+#
+# 插件只用 Python 标准库（sqlite3 / asyncio / json / re / datetime）
+# 与 AstrBot 本身提供的 API，因此这里刻意留空。
+#
+# 之所以坚持零依赖：sqlistore 用标准库 sqlite3 即可满足，
+# 不需要 aiosqlite；引入第三方包只会增加用户安装时的失败面。

@@ -1,0 +1,46 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # docs/ 整个目录作为站点根发布。赞赏码等静态资源都在这个目录里，
+      # 随仓库提交一起版本化，不会因为部署流程而被覆盖或丢失。
+      - name: 确认关键资源存在
+        run: |
+          test -f docs/index.html || { echo "缺少 docs/index.html"; exit 1; }
+          test -f docs/donate_qr.png || { echo "缺少 docs/donate_qr.png（赞赏码）"; exit 1; }
+          test -f docs/favicon.png || { echo "缺少 docs/favicon.png"; exit 1; }
+          echo "关键资源检查通过"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
