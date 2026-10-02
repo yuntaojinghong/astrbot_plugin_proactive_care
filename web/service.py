@@ -79,6 +79,9 @@ class PanelService:
             },
             "group_whitelist": self.cfg.group_whitelist,
             "tick_seconds": self.cfg.tick_seconds,
+            "instant_probability": self.cfg.instant_probability_percent,
+            "instant_delay": list(self.cfg.instant_delay),
+            "instant_cooldown_seconds": self.cfg.instant_cooldown_seconds,
         }
 
     # ==================================================================
@@ -144,6 +147,8 @@ class PanelService:
             "paused": bool(session.get("paused")),
             "paused_reason": session.get("paused_reason") or "",
             "in_scope": self.scheduler._scope_allowed(session),
+            "instant_probability": self.cfg.instant_probability_for(session) * 100,
+            "instant_probability_global": self.cfg.instant_probability_percent,
             "last_human_ts": last_human,
             "last_human_text": format_ts(last_human),
             "quiet_for": humanize_delta(now_ts() - last_human) if last_human else "",
@@ -182,6 +187,19 @@ class PanelService:
         override = _load_json(session.get("override_json"))
         if "name" in payload:
             override["name"] = str(payload.get("name") or "")[:40]
+        if "instant_probability" in payload:
+            raw = payload.get("instant_probability")
+            # 空字符串 / null 表示「跟随全局」，写回时会删掉这个键
+            if raw is None or str(raw).strip() == "":
+                override.pop("instant_probability", None)
+            else:
+                try:
+                    percent = int(float(raw))
+                except (TypeError, ValueError):
+                    raise ValueError("概率要填 0~100 的数字")
+                if not 0 <= percent <= 100:
+                    raise ValueError("概率要在 0~100 之间")
+                override["instant_probability"] = percent
         fields["override_json"] = json.dumps(override, ensure_ascii=False)
 
         await self.store.update_session(umo, **fields)

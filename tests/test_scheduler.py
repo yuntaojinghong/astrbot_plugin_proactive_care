@@ -528,3 +528,183 @@ def test_status_snapshot(store):
     assert status["running"] is False
     assert status["tick_seconds"] == 30
     assert status["error_count"] == 0
+
+
+# ======================================================================
+#  即时搭话（群友发言后按概率接一句）
+# ======================================================================
+def _instant_config(**overrides):
+    trigger = {"instant_enable": True, "instant_probability": 100, "instant_cooldown_seconds": 0}
+    trigger.update(overrides)
+    return trigger
+
+
+def test_instant_fires_when_probability_hits(store, monkeypatch):
+    quiet_off(monkeypatch)
+    sent: list = []
+    generator = FakeGenerator("我也想去")
+
+    async def scenario():
+        await store.ensure_session(UMO, "group", "1001")
+        scheduler = make_scheduler(store, sent, generator, trigger=_instant_config())
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    record = run(scenario())
+    assert record is not None and record["sent"] is True
+    assert record["trigger"] == "instant"
+    assert sent == [(UMO, "我也想去")]
+    assert generator.calls[0][0] == "instant"
+
+
+def test_instant_respects_probability_zero(store, monkeypatch):
+    """概率 0 时哪怕别的条件都满足也不能发。"""
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario():
+        await store.ensure_session(UMO, "group", "1001")
+        scheduler = make_scheduler(store, sent, trigger=_instant_config(instant_probability=0))
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario()) is None
+    assert sent == []
+
+
+def test_instant_roll_is_probabilistic(store, monkeypatch):
+    """概率 50% 时，随机值落在两侧的结果必须相反。"""
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario(roll):
+        await store.ensure_session(UMO, "group", "1001")
+        scheduler = make_scheduler(store, sent, trigger=_instant_config(instant_probability=50))
+        monkeypatch.setattr(scheduler_module.random, "random", lambda: roll)
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario(0.10)) is not None, "0.10 < 0.5 应当命中"
+    assert run(scenario(0.90)) is None, "0.90 > 0.5 应当不命中"
+
+
+def test_instant_skips_min_human_gap(store, monkeypatch):
+    """刚有人说话也要能接——这条闸门本来就是防热闹时插话的，对它不适用。"""
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario():
+        await store.ensure_session(UMO, "group", "1001")
+        # 最后一條真人消息就在刚刚，min_human_gap 会把轮询触发全部挡掉
+        await store.update_session(UMO, last_human_ts=now_ts())
+        scheduler = make_scheduler(
+            store, sent, trigger=_instant_config(), guard={"min_human_gap_minutes": 20}
+        )
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario()) is not None
+    assert sent
+
+
+def test_instant_uses_own_seconds_cooldown(store, monkeypatch):
+    """即时搭话用秒级冷却，不受全局分钟级冷却影响；但冷却内不能再发。"""
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario():
+        await store.ensure_session(UMO, "group", "1001")
+        await store.update_session(UMO, last_proactive_ts=now_ts() - 30)
+        scheduler = make_scheduler(
+            store,
+            sent,
+            trigger=_instant_config(instant_cooldown_seconds=300),
+            guard={"cooldown_minutes": 120},
+        )
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario()) is None, "30 秒前刚说过，仍在 300 秒冷却内"
+    assert sent == []
+
+
+def test_instant_still_respects_daily_cap_and_quiet(store, monkeypatch):
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario():
+        await store.ensure_session(UMO, "group", "1001")
+        scheduler = make_scheduler(
+            store, sent, trigger=_instant_config(), guard={"max_per_day": 1}
+        )
+        await store.add_history(UMO, "idle", "之前发过一条", "大家好", sent=True)
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario()) is None
+    assert sent == []
+
+
+def test_instant_respects_quiet_hours(store, monkeypatch):
+    sent: list = []
+
+    async def scenario():
+        await store.ensure_session(UMO, "group", "1001")
+        scheduler = make_scheduler(store, sent, trigger=_instant_config())
+        monkeypatch.setattr(scheduler_module, "in_quiet_hours", lambda *args, **kwargs: True)
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario()) is None
+    assert sent == []
+
+
+def test_instant_disabled_switch_or_master(store, monkeypatch):
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario(trigger, basic):
+        await store.ensure_session(UMO, "group", "1001")
+        scheduler = make_scheduler(store, sent, trigger=trigger, basic=basic)
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario(_instant_config(instant_enable=False), {"enabled": True, "group_whitelist": ["all"]})) is None
+    assert run(scenario(_instant_config(), {"enabled": False, "group_whitelist": ["all"]})) is None
+    assert sent == []
+
+
+def test_instant_skips_paused_or_out_of_scope(store, monkeypatch):
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario(**fields):
+        await store.ensure_session(UMO, "group", "1001")
+        await store.update_session(UMO, **fields)
+        scheduler = make_scheduler(store, sent, trigger=_instant_config())
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    assert run(scenario(paused=1)) is None
+    assert run(scenario(enabled=0)) is None
+    assert sent == []
+
+
+def test_instant_session_override_probability(store, monkeypatch):
+    """单个群可以覆盖全局概率。"""
+    quiet_off(monkeypatch)
+    sent: list = []
+
+    async def scenario(override):
+        await store.ensure_session(UMO, "group", "1001")
+        await store.update_session(UMO, override_json=override)
+        scheduler = make_scheduler(store, sent, trigger=_instant_config(instant_probability=100))
+        monkeypatch.setattr(scheduler_module.random, "random", lambda: 0.5)
+        session = await store.get_session(UMO)
+        return await scheduler.try_instant(session)
+
+    import json
+
+    assert run(scenario(json.dumps({"instant_probability": 0}))) is None, "本群设为 0% 应不触发"
+    assert run(scenario(json.dumps({"instant_probability": 80}))) is not None, "本群设为 80% 应命中 0.5"
+    assert sent

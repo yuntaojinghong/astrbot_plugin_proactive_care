@@ -5,6 +5,9 @@
 
     话题追问 > 定时问候 > 空闲唤醒 > 随机关怀
 
+另有一种**不进轮询**的触发方式「即时搭话」（:meth:`try_instant`）：群友一发
+消息就按概率判定，由消息事件直接驱动，延迟几秒后发声。
+
 判定一律**从便宜到昂贵**：先过静默时段、每日上限、冷却、最小间隔这些
 零成本闸门，全部通过才去调用模型。所以轮询本身不烧任何 token。
 
@@ -309,6 +312,57 @@ class Scheduler:
         return stamps
 
     # ==================================================================
+    #  即时搭话（群友一发言就按概率接一句）
+    # ==================================================================
+    async def try_instant(self, session: dict, moment: _dt.datetime | None = None) -> dict | None:
+        """收到群友消息后立刻判定要不要接一句。
+
+        与轮询触发的区别：
+
+        - 不看「距最后一条真人消息的最短间隔」——刚有人说话才轮到它，
+          那条闸门本来就是用来防止在热闹时插话的，对它不适用
+        - 用独立的**秒级**冷却，而不是全局的分钟级冷却，否则 120 分钟冷却
+          会让这个功能形同虚设
+        - 总开关、生效范围、静默时段、每日上限这些仍然照常生效
+        """
+        if not self.config.enabled or not self.config.instant_enable:
+            return None
+
+        umo = session.get("umo") or ""
+        if not umo or not int(session.get("enabled") or 0):
+            return None
+        if int(session.get("paused") or 0):
+            return None
+        if not self._scope_allowed(session):
+            return None
+
+        moment = moment or _dt.datetime.now()
+        if in_quiet_hours(moment, *self.config.quiet_range):
+            return None
+
+        if await self.store.count_sent_today(umo) >= self.config.max_per_day:
+            return None
+
+        last_proactive = float(session.get("last_proactive_ts") or 0)
+        if last_proactive and now_ts() - last_proactive < self.config.instant_cooldown_seconds:
+            return None
+
+        probability = self.config.instant_probability_for(session)
+        if probability <= 0:
+            return None
+        if random.random() >= probability:
+            self._info(f"会话 {umo} 即时搭话未命中概率（{probability:.0%}）")
+            return None
+
+        return await self.fire(
+            session,
+            "instant",
+            f"群友刚发言，按 {probability:.0%} 的概率搭话",
+            "顺着刚才那句话自然接一句，像群里一个真人那样搭腔；"
+            "不要复述对方的话，不要每句都提问，没话可接就换个轻松的方向",
+        )
+
+    # ==================================================================
     #  执行发送
     # ==================================================================
     async def fire(
@@ -442,6 +496,9 @@ class Scheduler:
                 candidates.append((plan[done], "随机关怀"))
 
         if not candidates:
+            if self.config.instant_enable:
+                percent = int(self.config.instant_probability_for(session) * 100)
+                return {"eta": None, "why": f"群友发言时有 {percent}% 概率搭话"}
             return {"eta": None, "why": "当前没有可用的触发方式"}
 
         # 冷却与每日上限会把时间往后推，这里做一个近似补偿

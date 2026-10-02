@@ -347,6 +347,12 @@ function viewOverview() {
     ["话题追问", state.config?.trigger?.followup_enable, state.config?.trigger?.followup_minutes, "分钟"],
     ["随机关怀", state.config?.trigger?.random_enable, `${state.config?.trigger?.random_min_per_day}~${state.config?.trigger?.random_max_per_day}`, "次/天"],
     ["定时问候", state.config?.trigger?.schedule_enable, state.schedules.length, "条规则"],
+    [
+      "即时搭话",
+      state.config?.trigger?.instant_enable,
+      `${state.config?.trigger?.instant_probability ?? 0}%`,
+      "概率回复",
+    ],
   ];
 
   const upcoming = state.sessions
@@ -507,6 +513,13 @@ function viewSessions() {
 
           <div class="row-meta" style="margin-bottom:10px">
             <span>${esc(item.eta_why || "—")}</span>
+            ${state.config?.trigger?.instant_enable
+              ? `<span class="tag ${item.instant_probability !== item.instant_probability_global ? "acc" : ""}" title="${
+                  item.instant_probability !== item.instant_probability_global
+                    ? `本群单独设置，全局 ${item.instant_probability_global}%`
+                    : "跟随全局设置"
+                }">搭话 ${Math.round(item.instant_probability ?? 0)}%</span>`
+              : ""}
             ${streak}
             ${item.pending_question ? '<span class="tag acc">等待接话</span>' : ""}
           </div>
@@ -522,6 +535,7 @@ function viewSessions() {
                 ? `<button class="btn tiny" data-act="pause" data-umo="${esc(item.umo)}" data-value="0">恢复</button>`
                 : `<button class="btn tiny" data-act="pause" data-umo="${esc(item.umo)}" data-value="1">暂停</button>`
             }
+            <button class="btn tiny" data-act="prob" data-umo="${esc(item.umo)}" data-prob="${esc(item.instant_probability ?? "")}">搭话概率</button>
             <button class="btn tiny" data-act="rename" data-umo="${esc(item.umo)}" data-name="${esc(item.name)}">重命名</button>
             <button class="btn tiny" data-act="filter" data-umo="${esc(item.umo)}">看记忆</button>
             <button class="btn tiny danger" data-act="reset" data-umo="${esc(item.umo)}">清空上下文</button>
@@ -886,6 +900,42 @@ function viewSettings() {
       </div>
 
       <div class="card span-2">
+        <h2>触发 · 即时搭话 <span class="hint">群友一发消息就掷骰子</span></h2>
+        ${toggleLine(
+          "启用",
+          "trigger.instant_enable",
+          trg.instant_enable,
+          "开启后，每条群友消息都有机会让微光接一句。仍然受静默时段、每日上限与下面的冷却约束。"
+        )}
+        <div class="inline" style="margin-top:12px">
+          ${field(
+            "回复概率",
+            "trigger.instant_probability",
+            trg.instant_probability ?? 25,
+            "百分比。0 = 不回，100 = 每条都回（不建议）",
+            "number",
+            'min="0" max="100"'
+          )}
+          ${field(
+            "两套回复之间的最短间隔",
+            "trigger.instant_cooldown_seconds",
+            trg.instant_cooldown_seconds ?? 300,
+            "秒。独立于全局冷却，防止群一热闹就连环刷屏",
+            "number",
+            'min="0"'
+          )}
+        </div>
+        <div class="inline">
+          ${field("延迟下限", "trigger.instant_delay_min", trg.instant_delay_min ?? 2, "秒", "number", 'min="0"')}
+          ${field("延迟上限", "trigger.instant_delay_max", trg.instant_delay_max ?? 8, "秒，实际在这个区间里随机", "number", 'min="0"')}
+        </div>
+        <p class="section-note">
+          即时搭话不看「距最后一条真人消息的最短间隔」——它就是要在大家聊天的时候接话。
+          想让某个群更热闹或更安静，可以到「会话」页给那个群单独设概率。
+        </p>
+      </div>
+
+      <div class="card span-2">
         <h2>防骚扰</h2>
         <div class="inline">
           ${field("静默时段开始", "guard.quiet_start", guard.quiet_start, "HH:MM", "time")}
@@ -1089,6 +1139,26 @@ async function onAction(event) {
         "已更新"
       );
       break;
+
+    case "prob": {
+      const current = node.dataset.prob ?? "";
+      const next = window.prompt(
+        "这个群单独的「即时搭话」概率（0~100）。\n留空或取消表示跟随全局设置"
+        + (current ? `，当前 ${current}%` : "，当前跟随全局"),
+        current
+      );
+      if (next === null) break;
+      const value = next.trim();
+      if (value !== "" && (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 100)) {
+        toast("概率要填 0~100 的数字", "err");
+        break;
+      }
+      await withBusy(
+        () => post("session", { umo: node.dataset.umo, instant_probability: value === "" ? null : Number(value) }),
+        value === "" ? "已改为跟随全局概率" : `本群概率已设为 ${value}%`
+      );
+      break;
+    }
 
     case "rename": {
       const next = window.prompt("给这个会话起个便于辨认的名字（留空则显示原始 ID）", node.dataset.name || "");

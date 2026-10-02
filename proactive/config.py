@@ -35,6 +35,11 @@ _FALLBACK: dict[str, Any] = {
         "random_min_per_day": 1,
         "random_max_per_day": 2,
         "schedule_enable": False,
+        "instant_enable": False,
+        "instant_probability": 25,
+        "instant_delay_min": 2,
+        "instant_delay_max": 8,
+        "instant_cooldown_seconds": 300,
     },
     "guard": {
         "quiet_start": "23:30",
@@ -258,6 +263,51 @@ class Config:
     def schedule_enable(self) -> bool:
         return bool(self.section("trigger").get("schedule_enable"))
 
+    # ---------- 即时搭话 ----------
+    @property
+    def instant_enable(self) -> bool:
+        return bool(self.section("trigger").get("instant_enable"))
+
+    @property
+    def instant_probability(self) -> float:
+        """每条群友消息的回复概率，0.0 ~ 1.0。"""
+        return _to_int(self.section("trigger").get("instant_probability"), 25, 0, 100) / 100.0
+
+    @property
+    def instant_probability_percent(self) -> int:
+        return _to_int(self.section("trigger").get("instant_probability"), 25, 0, 100)
+
+    @property
+    def instant_delay(self) -> tuple[float, float]:
+        """回复前的随机延迟区间（秒）。"""
+        low = _to_int(self.section("trigger").get("instant_delay_min"), 2, 0, 600)
+        high = _to_int(self.section("trigger").get("instant_delay_max"), 8, 0, 600)
+        if high < low:
+            low, high = high, low
+        return float(low), float(high)
+
+    @property
+    def instant_cooldown_seconds(self) -> int:
+        return _to_int(self.section("trigger").get("instant_cooldown_seconds"), 300, 0, 86400)
+
+    def instant_probability_for(self, session: dict | None) -> float:
+        """会话级概率优先，没设才用全局值。"""
+        override = (session or {}).get("override_json")
+        if isinstance(override, str):
+            try:
+                override = json.loads(override or "{}")
+            except (TypeError, ValueError):
+                override = {}
+        if isinstance(override, dict):
+            raw = override.get("instant_probability")
+            if raw is not None and str(raw).strip() != "":
+                try:
+                    value = int(float(raw))
+                except (TypeError, ValueError):
+                    return self.instant_probability
+                return max(0, min(100, value)) / 100.0
+        return self.instant_probability
+
     # ---------- 防骚扰 ----------
     @property
     def quiet_range(self) -> tuple[tuple[int, int], tuple[int, int]]:
@@ -352,6 +402,13 @@ class Config:
                 f"空闲唤醒阈值（{idle} 分钟）不大于「距最后一条真人消息的最短间隔」（{gap} 分钟），"
                 "空闲唤醒很难有机会触发。"
             )
+        if self.instant_enable and self.instant_probability_percent == 0:
+            self.warnings.append("即时搭话已启用但概率为 0%，实际不会触发。")
+        if self.instant_enable and self.instant_probability_percent == 100:
+            self.warnings.append("即时搭话概率为 100%，每条消息都会回，群里可能会很吵。")
+        low_delay, high_delay = self.instant_delay
+        if self.instant_enable and high_delay > 120:
+            self.warnings.append("即时搭话的最长延迟超过 120 秒，回复可能明显滞后于对话。")
         for pattern in self.ignore_patterns:
             try:
                 re.compile(pattern)

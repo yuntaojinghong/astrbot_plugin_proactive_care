@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import random
 from typing import Any
 
 from astrbot.api import logger
@@ -67,6 +69,8 @@ class ProactiveCarePlugin(Star):
         self.scheduler = Scheduler(self.cfg, self.store, self.memory, self.generator, self._send, logger)
 
         self.web = None
+        # 正在等待延迟发声的会话，避免一条消息触发多个并发任务
+        self._instant_pending: set[str] = set()
         self._register_pages(context)
 
         for warning in self.cfg.warnings:
@@ -204,6 +208,28 @@ class ProactiveCarePlugin(Star):
         await self.store.prune_messages(umo, keep=200)
         await self.memory.maybe_extract(umo, session)
 
+        # 即时搭话：群友一发言就掷一次骰子，命中就隔几秒接一句
+        if self.cfg.enabled and self.cfg.instant_enable and umo not in self._instant_pending:
+            self._instant_pending.add(umo)
+            asyncio.create_task(self._instant_later(umo), name=f"proactive-instant-{umo}")
+
+    async def _instant_later(self, umo: str) -> None:
+        """延迟一小会儿再判定，秒回太像机器人了。"""
+        try:
+            low, high = self.cfg.instant_delay
+            await asyncio.sleep(random.uniform(low, high))
+            session = await self.store.get_session(umo)
+            if session is None or not int(session.get("enabled") or 0):
+                return
+            # 延迟期间群里可能又有人说话了，拿最新的会话状态来判定
+            await self.scheduler.try_instant(session)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"[微光] 即时搭话判定异常: {exc}")
+        finally:
+            self._instant_pending.discard(umo)
+
     @filter.after_message_sent()
     async def on_message_sent(self, event: AstrMessageEvent):
         """机器人自己的回复也要进上下文，否则「话题追问」无从判断。"""
@@ -325,9 +351,34 @@ class ProactiveCarePlugin(Star):
                 yield event.plain_result(f"生成失败：{outcome.get('error') or '未知原因'}")
             return
 
+        if action in ("概率", "prob") or action.startswith("概率") or action.startswith("prob"):
+            value = action.replace("概率", "").replace("prob", "").strip()
+            if not value:
+                yield event.plain_result(
+                    f"当前即时搭话：{'开启' if self.cfg.instant_enable else '关闭'}，"
+                    f"概率 {self.cfg.instant_probability_percent}%。\n"
+                    "用法：`/主动 概率 30`（0~100，0 等于关闭）"
+                )
+                return
+            try:
+                percent = int(float(value))
+            except ValueError:
+                yield event.plain_result("概率要填 0~100 的数字，例如 `/主动 概率 30`。")
+                return
+            if not 0 <= percent <= 100:
+                yield event.plain_result("概率要在 0~100 之间。")
+                return
+            await self._set_instant_probability(percent)
+            yield event.plain_result(
+                f"即时搭话概率已设为 {percent}%"
+                + ("（概率低于 1% 基本不会触发）" if percent < 1 else "")
+                + ("。群里会比较热闹，注意别太吵。" if percent >= 60 else "。")
+            )
+            return
+
         yield event.plain_result(
-            "用法：/主动 [状态|开启|关闭|立即|预览|暂停|恢复]\n"
-            "「立即」会真的发出去，「预览」只生成不发送。"
+            "用法：/主动 [状态|开启|关闭|立即|预览|暂停|恢复|概率]\n"
+            "「立即」会真的发出去，「预览」只生成不发送，「概率 30」调节即时搭话的触发概率。"
         )
 
     @filter.command("记忆")
@@ -448,6 +499,14 @@ class ProactiveCarePlugin(Star):
             f"主动消息：今日 {overview['sent_today']} 条 / 累计 {overview['sent_total']} 条，"
             f"被回应率 {round(overview['answer_rate'] * 100)}%",
             f"记忆库：{overview['memories']} 条",
+            f"即时搭话：{'开启' if self.cfg.instant_enable else '关闭'}，"
+            f"概率 {int(self.cfg.instant_probability_for(session) * 100)}%"
+            + (
+                f"（本群单独设置，全局 {self.cfg.instant_probability_percent}%）"
+                if session and int(self.cfg.instant_probability_for(session) * 100)
+                != self.cfg.instant_probability_percent
+                else ""
+            ),
             "",
         ]
         if session:
@@ -476,6 +535,19 @@ class ProactiveCarePlugin(Star):
             section["enabled"] = bool(value)
         except Exception as exc:
             logger.warning(f"[微光] 写入配置失败: {exc}")
+        await self._persist_config()
+
+    async def _set_instant_probability(self, percent: int) -> None:
+        """改即时搭话概率并落盘。"""
+        if self._raw_config is None:
+            self._raw_config = self.cfg.raw
+        try:
+            section = self._raw_config.setdefault("trigger", {})
+            section["instant_probability"] = int(percent)
+            if int(percent) > 0:
+                section["instant_enable"] = True
+        except Exception as exc:
+            logger.warning(f"[微光] 写入概率失败: {exc}")
         await self._persist_config()
 
     async def _persist_config(self) -> None:

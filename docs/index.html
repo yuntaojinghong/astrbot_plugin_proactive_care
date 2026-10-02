@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>微光 · 主动关怀 —— 会先开口的 AstrBot 群友</title>
-<meta name="description" content="微光是一个 AstrBot 插件：群聊安静太久、话题断在半截、或者今天还没人说话时，它会结合这个群真实聊过的内容和长期记忆，生成一句自然的主动消息。四种触发方式、四层防骚扰、自带炫酷配置面板，与匿名树洞类插件做了三重隔离。" />
+<meta name="description" content="微光是一个 AstrBot 插件：群友一发言就按可调概率接一句，或者等群聊安静太久时主动开口。它会结合这个群真实聊过的内容和长期记忆生成一句话。五种触发方式、四层防骚扰、自带炫酷配置面板，与匿名树洞类插件做了三重隔离。" />
 <meta property="og:title" content="微光 · 主动关怀" />
 <meta property="og:description" content="会先开口的 AstrBot 群友：结合上下文与长期记忆，在群里安静下来的时候主动说一句人话。" />
 <meta property="og:type" content="website" />
@@ -483,10 +483,10 @@ footer{
     </div>
 
     <div class="counters">
-      <div class="counter"><div class="v" data-count="4">0</div><div class="k">种触发方式</div></div>
+      <div class="counter"><div class="v" data-count="5">0</div><div class="k">种触发方式</div></div>
       <div class="counter"><div class="v" data-count="4">0</div><div class="k">层防骚扰闸门</div></div>
       <div class="counter"><div class="v" data-count="3">0</div><div class="k">重匿名隔离</div></div>
-      <div class="counter"><div class="v" data-count="126">0</div><div class="k">个单元测试</div></div>
+      <div class="counter"><div class="v" data-count="155">0</div><div class="k">个单元测试</div></div>
       <div class="counter"><div class="v" data-count="0">0</div><div class="k">个第三方依赖</div></div>
     </div>
   </div>
@@ -526,6 +526,24 @@ footer{
           <li>自动攒批抽取，不逐条烧 token</li>
           <li>归一化去重，同一件事不会存十遍</li>
           <li>面板里可查看、编辑、删除</li>
+        </ul>
+      </div>
+      <div class="card reveal">
+        <h3><span class="ico">04</span>也能随时接话</h3>
+        <p>开了「即时搭话」之后，群友一发消息就掷一次骰子，命中就隔几秒自然接一句——概率你说了算。</p>
+        <ul>
+          <li>概率 0~100% 可调，还能每个群单独设</li>
+          <li>随机延迟 2~8 秒，不像机器人秒回</li>
+          <li>独立秒级冷却，热闹时也不会连环刷屏</li>
+        </ul>
+      </div>
+      <div class="card reveal">
+        <h3><span class="ico">05</span>和树洞不打架</h3>
+        <p>只跟踪群聊、忽略机器人自己转发的内容、昵称池兜底。微光全程不拦截消息、不打断事件传播。</p>
+        <ul>
+          <li>投稿原文走私聊，数据层面接触不到</li>
+          <li>树洞发帖不会把空闲计时器清零</li>
+          <li>转述内容不进记忆库也不进提示词</li>
         </ul>
       </div>
     </div>
@@ -938,7 +956,7 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
     },
     {
       t: '触发判定',
-      p: '调度器每 30 秒走一遍所有会话，按固定优先级挑触发方式：话题追问 &gt; 定时问候 &gt; 空闲唤醒 &gt; 随机关怀。先过静默时段、每日上限、冷却、最小间隔这四道零成本闸门，全部通过才轮到后面几步——所以轮询本身不花一分钱 token。',
+      p: '调度器每 30 秒走一遍所有会话，按固定优先级挑触发方式：话题追问 &gt; 定时问候 &gt; 空闲唤醒 &gt; 随机关怀。先过静默时段、每日上限、冷却、最小间隔这四道零成本闸门，全部通过才轮到后面几步——所以轮询本身不花一分钱 token。<br><br>另有第五种触发方式<strong>「即时搭话」不进轮询</strong>：群友一发消息就按可调的概率掷骰子，命中就隔几秒接一句。它刻意不看「真人已经安静下来」那条闸门，并用独立的秒级冷却代替分钟级冷却，否则根本没机会触发。',
     },
     {
       t: '检索记忆',

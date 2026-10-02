@@ -18,8 +18,19 @@ TRIGGER_LABELS = {
     "followup": "话题追问",
     "random": "随机关怀",
     "schedule": "定时问候",
+    "instant": "即时搭话",
     "manual": "手动触发",
     "preview": "预览",
+}
+
+# 不同触发方式下，机器人「为什么开口」的场景描述，直接进系统提示
+TRIGGER_SCENES = {
+    "instant": "群里刚有人说了一句话，你正跟着大家聊，想自然地接一句。",
+    "followup": "你之前抛了个话题没人接，现在想自己把话头续下去。",
+    "schedule": "到了一个固定的时间点，你按惯例跟大家打个招呼。",
+    "random": "没什么特别的事，就是突然想到这个群里的人了。",
+    "manual": "管理员让你说句话。",
+    "preview": "这是一次演练，你只是在练着说一句话。",
 }
 
 # 相似度超过这个阈值就认定「和之前说过的太像」，重新生成一次
@@ -27,7 +38,7 @@ DUPLICATE_THRESHOLD = 0.82
 
 SYSTEM_TEMPLATE = """你是「{bot_name}」，长期活跃在这个群里的一个真人风格群友。
 
-现在群里安静了一会儿，你打算主动开口说一句话。
+{scene}
 
 必须遵守：
 1. 只说一句话。自然、口语化，是真人随口说出来的那种，不要书面语。
@@ -94,7 +105,10 @@ class Generator:
             memories=memories,
             last_sent_block=last_sent,
         )
-        system_prompt = SYSTEM_TEMPLATE.format(bot_name=self.bot_name, style=self.config.style)
+        scene = TRIGGER_SCENES.get(trigger, "现在群里安静了一会儿，你打算主动开口说一句话。")
+        system_prompt = SYSTEM_TEMPLATE.format(
+            bot_name=self.bot_name, style=self.config.style, scene=scene
+        )
 
         text = await self.llm.chat(prompt=prompt, system_prompt=system_prompt, umo=umo)
         if not text:

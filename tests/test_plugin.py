@@ -322,6 +322,38 @@ def test_toggle_commands_persist(plugin):
     assert instance._raw_config.get("basic", {}).get("enabled") is False
 
 
+def test_probability_command_persists_and_enables(plugin):
+    """`/主动 概率 40` 要写回 AstrBot 的配置对象，并顺手把即时搭话打开。"""
+    instance, _ = plugin
+
+    async def scenario():
+        shown = [item.text for item in await collect(instance.cmd_proactive(make_event(), "概率"))]
+        applied = [item.text for item in await collect(instance.cmd_proactive(make_event(), "概率 40"))]
+        return shown, applied
+
+    shown, applied = run(scenario())
+    assert "概率" in shown[0]
+    assert "40%" in applied[0]
+    assert instance.cfg.instant_probability_percent == 40
+    assert instance.cfg.instant_enable is True, "设了概率就应当顺带开启"
+    assert instance._raw_config.get("trigger", {}).get("instant_probability") == 40
+
+
+def test_probability_command_rejects_out_of_range(plugin):
+    instance, _ = plugin
+
+    async def scenario():
+        return [
+            [item.text for item in await collect(instance.cmd_proactive(make_event(), "概率 200"))],
+            [item.text for item in await collect(instance.cmd_proactive(make_event(), "概率 abc"))],
+        ]
+
+    too_big, not_a_number = run(scenario())
+    assert "0~100" in too_big[0]
+    assert "0~100" in not_a_number[0]
+    assert instance.cfg.instant_probability_percent != 200
+
+
 def test_pause_and_resume(plugin):
     instance, _ = plugin
 
@@ -354,6 +386,46 @@ def test_memory_commands(plugin):
     assert "小王喜欢喝美式" in listed[0]
     assert "小王喜欢喝美式" in searched[0]
     assert "还没有任何记忆" in cleared[0]
+
+
+def test_panel_sets_session_instant_probability(plugin):
+    """面板给单个群设概率，留空则回到跟随全局。"""
+    instance, _ = plugin
+    from astrbot_plugin_proactive_care.web.service import PanelService
+
+    service = PanelService(instance)
+
+    async def scenario():
+        await instance.store.ensure_session(UMO, "group", "1001")
+        await service.update_session(UMO, {"instant_probability": 65})
+        custom = await service.get_session(UMO)
+        await service.update_session(UMO, {"instant_probability": None})
+        cleared = await service.get_session(UMO)
+        return custom, cleared
+
+    custom, cleared = run(scenario())
+    assert abs(custom["instant_probability"] - 65) < 1e-6
+    assert custom["instant_probability"] != custom["instant_probability_global"]
+    assert abs(cleared["instant_probability"] - cleared["instant_probability_global"]) < 1e-6
+
+
+def test_panel_rejects_bad_probability(plugin):
+    instance, _ = plugin
+    from astrbot_plugin_proactive_care.web.service import PanelService
+
+    service = PanelService(instance)
+
+    async def scenario():
+        await instance.store.ensure_session(UMO, "group", "1001")
+        errors = []
+        for bad in (200, -5, "不是数字"):
+            try:
+                await service.update_session(UMO, {"instant_probability": bad})
+            except ValueError as exc:
+                errors.append(str(exc))
+        return errors
+
+    assert len(run(scenario())) == 3
 
 
 def test_unknown_subcommand_prints_usage(plugin):
