@@ -87,7 +87,13 @@ def _install_stubs() -> None:
             self._sender_name = kwargs.get("sender_name", "")
             self._self_id = kwargs.get("self_id", "")
             self._result = kwargs.get("result")
+            # 对齐真实接口：@机器人 / 唤醒词触发时为 True
+            self.is_wake = bool(kwargs.get("wake", False))
             self.stopped = False
+
+        def is_wake_up(self):
+            """桩：真实 AstrMessageEvent 有这个无参方法。"""
+            return self.is_wake
 
         def get_group_id(self):
             return self._group_id

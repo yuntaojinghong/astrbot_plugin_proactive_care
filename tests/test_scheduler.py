@@ -10,6 +10,7 @@ from proactive.scheduler import Scheduler
 from proactive.textutil import now_ts
 
 import proactive.scheduler as scheduler_module
+from timekit import freeze_now
 
 UMO = "aiocqhttp:GroupMessage:1001"
 
@@ -291,16 +292,20 @@ def test_schedule_trigger_fires_once_per_day(store, monkeypatch):
 
 
 def test_expired_schedule_is_marked_without_firing(store, monkeypatch):
-    """错过太久的定时问候不该补发。"""
+    """错过太久的定时问候不该补发。
+
+    时间必须钉死：原来直接用 ``now - 6 小时`` 算「错过时刻」，
+    在凌晨 0~6 点跑时减出来的时刻会落到同一天的未来，用例就会假失败。
+    """
     quiet_off(monkeypatch)
+    freeze_now(monkeypatch)          # 钉在 2026-06-15 12:00
     sent: list = []
 
     async def scenario():
         await store.ensure_session(UMO, "group", "1001")
         await store.update_session(UMO, last_human_ts=now_ts() - 86400)
-        now = _dt.datetime.now()
-        missed = (now - _dt.timedelta(hours=6)).strftime("%H:%M")
-        await store.add_schedule(UMO, missed, name="早上的问候")
+        # 固定取一个当天更早、且超出容差的时间点（12:00 - 3h = 09:00，超过 120 分钟容差）
+        await store.add_schedule(UMO, "09:00", name="早上的问候")
         scheduler = make_scheduler(
             store,
             sent,

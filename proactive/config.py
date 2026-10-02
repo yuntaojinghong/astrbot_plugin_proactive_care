@@ -40,6 +40,8 @@ _FALLBACK: dict[str, Any] = {
         "instant_delay_min": 2,
         "instant_delay_max": 8,
         "instant_cooldown_seconds": 300,
+        # 机器人刚用正常管线回过话时，多久之内不再即时搭话（防止一次 @ 得到两种语气）
+        "instant_reply_guard_seconds": 90,
     },
     "guard": {
         "quiet_start": "23:30",
@@ -289,6 +291,17 @@ class Config:
     @property
     def instant_cooldown_seconds(self) -> int:
         return _to_int(self.section("trigger").get("instant_cooldown_seconds"), 300, 0, 86400)
+
+    @property
+    def instant_reply_guard_seconds(self) -> int:
+        """机器人刚回过话的静默窗口（秒）。
+
+        0 表示关闭这道保护。默认 90 秒，足以覆盖一次 @ 问答的往返，
+        又不会长到影响正常的即时搭话。
+        """
+        return _to_int(
+            self.section("trigger").get("instant_reply_guard_seconds"), 90, 0, 3600
+        )
 
     def instant_probability_for(self, session: dict | None) -> float:
         """会话级概率优先，没设才用全局值。"""

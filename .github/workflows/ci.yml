@@ -34,6 +34,23 @@ jobs:
           print('metadata.yaml OK')
           "
 
+      - name: 校验版本号一致性（metadata.yaml / __init__.py）
+        run: |
+          python - <<'PY'
+          import re, sys
+          def grab(path, pattern):
+              m = re.search(pattern, open(path, encoding="utf-8").read(), re.M)
+              return m.group(1) if m else None
+          got = {
+              "metadata.yaml": grab("metadata.yaml", r"^version:\s*v?(\S+)\s*$"),
+              "__init__.py": grab("__init__.py", r'^__version__\s*=\s*"([^"]+)"'),
+          }
+          if None in got.values() or len(set(got.values())) != 1:
+              print("版本号不一致（两处必须相同，改一处就要改另一处）:", got)
+              sys.exit(1)
+          print(f"版本号一致：v{got['metadata.yaml']}")
+          PY
+
       - name: 编译检查
         run: python -m compileall -q main.py proactive web
 

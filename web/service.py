@@ -41,6 +41,7 @@ class PanelService:
     # ==================================================================
     async def bootstrap(self) -> dict:
         return {
+            "version": self._plugin_version(),
             "overview": await self.overview(),
             "config": self.cfg.as_dict(),
             "warnings": list(self.cfg.warnings),
@@ -48,6 +49,24 @@ class PanelService:
             "scheduler": self.scheduler.status(),
             "limits": await self._limits(),
         }
+
+    @staticmethod
+    def _plugin_version() -> str:
+        """插件版本，供面板显示。
+
+        直接 import 顶层包（``__package__`` 形如
+        ``astrbot_plugin_proactive_care.web``，取第一段）读 ``__version__``。
+        取不到就返回空串——面板少显示一个数字，不该让整个 bootstrap 失败。
+        """
+        package = (__package__ or "").split(".")[0]
+        if not package:
+            return ""
+        try:
+            import importlib
+
+            return str(getattr(importlib.import_module(package), "__version__", "") or "")
+        except Exception:
+            return ""
 
     async def overview(self) -> dict:
         data = await self.store.overview()

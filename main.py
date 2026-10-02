@@ -71,6 +71,8 @@ class ProactiveCarePlugin(Star):
         self.web = None
         # 正在等待延迟发声的会话，避免一条消息触发多个并发任务
         self._instant_pending: set[str] = set()
+        # 持有即时搭话任务的强引用（见 _record_incoming 里的说明）
+        self._instant_tasks: set[asyncio.Task] = set()
         self._register_pages(context)
 
         for warning in self.cfg.warnings:
@@ -208,10 +210,68 @@ class ProactiveCarePlugin(Star):
         await self.store.prune_messages(umo, keep=200)
         await self.memory.maybe_extract(umo, session)
 
-        # 即时搭话：群友一发言就掷一次骰子，命中就隔几秒接一句
-        if self.cfg.enabled and self.cfg.instant_enable and umo not in self._instant_pending:
+        # 即时搭话：群友一发言就掷一次骰子，命中就隔几秒接一句。
+        #
+        # 但这些情况**不搭话**——否则会出现「一个 @ 换来两种语气」：
+        # 用户 @机器人 时正常管线已经回了一条（用机器人自己的人设），
+        # 若即时搭话再补一条（用 generator 里那套"群友人设"提示词），
+        # 群里就会先看到一句正常回复，紧接着又被另一个口吻接了一句。
+        if not self.cfg.instant_enable:
+            return
+        if self._was_addressed(event):
+            logger.debug("[微光] 这条是 @机器人/唤醒消息，交给正常管线，不即时搭话")
+            return
+        if self._bot_replied_recently(session):
+            logger.debug("[微光] 机器人刚回过话，本次不即时搭话")
+            return
+
+        if self.cfg.enabled and umo not in self._instant_pending:
             self._instant_pending.add(umo)
-            asyncio.create_task(self._instant_later(umo), name=f"proactive-instant-{umo}")
+            # 必须握住强引用：事件循环只保留 task 的弱引用，
+            # 没人引用时可能在 await 中途被 GC 掉，任务静默消失且不报错，
+            # 而 finally 里的 _instant_pending.discard 永远不会执行，
+            # 该会话就被永久卡住（表现为"有时候就不搭话了"）。
+            task = asyncio.create_task(self._instant_later(umo), name=f"proactive-instant-{umo}")
+            self._instant_tasks.add(task)
+            task.add_done_callback(self._instant_tasks.discard)
+
+    def _bot_replied_recently(self, session: dict) -> bool:
+        """机器人是否刚通过正常管线回过话。
+
+        正常回复会由 ``after_message_sent`` 写 ``last_bot_ts``。
+        距现在不足 ``instant_reply_guard_seconds`` 就认为"刚说过"，
+        此时插话必然造成重复回应。
+        """
+        guard = float(getattr(self.cfg, "instant_reply_guard_seconds", 0) or 0)
+        if guard <= 0:
+            return False
+        last_bot = float((session or {}).get("last_bot_ts") or 0)
+        if not last_bot:
+            return False
+        return (now_ts() - last_bot) < guard
+
+    def _was_addressed(self, event: AstrMessageEvent) -> bool:
+        """这条消息是不是在跟机器人说话（@机器人 / 唤醒词）。
+
+        AstrBot 的 ``AstrMessageEvent.is_wake_up()`` 就是干这个的
+        （内部读 ``is_wake`` 标记）。不同版本可能只有属性没有方法，
+        因此两种形态都试；都取不到时保守返回 False——
+        不能因为接口缺失就永远不搭话。
+        """
+        for name in ("is_wake_up", "is_at_or_wake", "is_wake"):
+            value = getattr(event, name, None)
+            if value is None:
+                continue
+            if callable(value):
+                try:
+                    if value():
+                        return True
+                except Exception:
+                    pass
+                continue
+            if bool(value):
+                return True
+        return False
 
     async def _instant_later(self, umo: str) -> None:
         """延迟一小会儿再判定，秒回太像机器人了。"""
