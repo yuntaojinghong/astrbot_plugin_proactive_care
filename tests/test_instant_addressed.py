@@ -21,8 +21,6 @@ import pytest
 
 from proactive.textutil import now_ts
 
-import proactive.scheduler as scheduler_module
-
 UMO = "aiocqhttp:GroupMessage:1001"
 
 INSTANT_ON = {
