@@ -141,17 +141,33 @@ def _async(fn: Callable) -> Callable:
 class Store:
     """所有持久化读写都从这里走。"""
 
+    #: 等锁超时（秒）。与 AstrBot 核心保持一致（它设的是 ``busy_timeout=30000``）。
+    #:
+    #: 为什么要显式设：``sqlite3.connect`` 默认只等 **5 秒**。本插件的库和
+    #: AstrBot 核心的库在**同一个进程、同一块磁盘**上，写锁是全局互斥的；
+    #: 只要别的写者持锁超过 5 秒，这里就直接抛
+    #: ``sqlite3.OperationalError: database is locked``。
+    #: 实测：另一写者持锁 7 秒时，默认 5 秒超时必失败；设为 30 秒则正常等待并通过。
+    LOCK_TIMEOUT_SECONDS = 30.0
+
     def __init__(self, data_dir: str, filename: str = "proactive_care.db"):
         self.data_dir = data_dir
         os.makedirs(data_dir, exist_ok=True)
         self.path = os.path.join(data_dir, filename)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
+        self._conn = sqlite3.connect(
+            self.path, check_same_thread=False, timeout=self.LOCK_TIMEOUT_SECONDS
+        )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
+            # 双保险：connect(timeout=) 与 busy_timeout 都设上。
+            # WAL 下这能让写入在别人持锁时排队等待，而不是直接失败。
+            self._conn.execute(
+                f"PRAGMA busy_timeout={int(self.LOCK_TIMEOUT_SECONDS * 1000)}"
+            )
             self._conn.commit()
 
     # ==================================================================

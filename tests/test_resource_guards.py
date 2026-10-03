@@ -22,6 +22,7 @@ import asyncio
 from proactive.config import Config
 from proactive.context import ContextBuilder
 from proactive.memory import MemoryManager
+from proactive.store import Store
 
 UMO = "aiocqhttp:GroupMessage:1001"
 SAMPLE = "今天中午吃什么好呢 我想吃面 你们呢 要不一起点外卖吧 我请客"
@@ -157,3 +158,62 @@ def test_extract_disabled_is_free(store):
         return len(llm.calls)
 
     assert run(scenario()) == 0
+
+
+# ======================================================================
+#  保护四：SQLite 等锁超时（治 "database is locked"）
+# ======================================================================
+def test_store_waits_for_write_lock(store):
+    """必须显式设置等锁超时。
+
+    ``sqlite3.connect`` 默认只等 5 秒。本插件的库与 AstrBot 核心的库在同一进程
+    同一块磁盘上，写锁全局互斥；别人持锁超过 5 秒时，默认连接直接抛
+    ``sqlite3.OperationalError: database is locked``。
+    用户线上日志里核心自己就在报这个错——正是这类争抢。
+
+    实测：另一写者持锁 7 秒时，默认 5 秒超时必失败，设为 30 秒则正常通过。
+    """
+    assert Store.LOCK_TIMEOUT_SECONDS >= 30, "等锁超时不该低于 AstrBot 核心的 30 秒"
+    busy = store._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    assert busy >= 30000, f"busy_timeout 未设置: {busy} ms"
+    assert store._conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+
+
+def test_store_survives_concurrent_writer(tmp_path):
+    """另一个连接持写锁数秒时，本插件的写入应当排队等待而不是报错。"""
+    import sqlite3
+    import threading
+    import time
+
+    db_dir = str(tmp_path / "lock")
+    st = Store(db_dir)
+    db_path = st.path
+
+    ready = threading.Event()
+    hold = 6.0
+
+    def holder():
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("INSERT INTO messages (umo, role, content, ts) "
+                     "VALUES ('x', 'user', 'holder', 0)")
+        ready.set()
+        time.sleep(hold)
+        conn.commit()
+        conn.close()
+
+    th = threading.Thread(target=holder, daemon=True)
+    th.start()
+    assert ready.wait(5), "持锁线程没起来"
+
+    before = run(st.count_messages(UMO))
+    t0 = time.time()
+    # 走真实写入路径；若等锁超时设置失效，这里会抛 OperationalError
+    run(st.add_message(UMO, "user", "等锁测试", sender_id="1"))
+    waited = time.time() - t0
+
+    assert waited > 1.0, f"没有真的等待持锁者（只用了 {waited:.1f}s），测试无意义"
+    after = run(st.count_messages(UMO))
+    assert after == before + 1, f"写入没落库: {before} -> {after}"
+    th.join(timeout=15)
+    st.close()

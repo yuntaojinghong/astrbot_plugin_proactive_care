@@ -228,6 +228,33 @@ git clone https://github.com/yuntaojinghong/astrbot_plugin_proactive_care.git
 > 会调模型的插件（如群管 + 主动关怀 + 学习类插件）。
 > 如果 2G 内存吃紧，优先排查**是不是在本地跑模型**——那比这些插件重得多。
 
+### `database is locked`
+
+日志里出现这个（**哪怕报错的是 AstrBot 核心自己的库**）：
+
+```
+[ERRO] [astrbot.main:194]: Failed to persist an incoming group message.
+sqlite3.OperationalError: database is locked
+```
+
+原因是**所有 SQLite 写者争抢同一把写锁**：AstrBot 核心（每条消息都要写
+`platform_message_history`）、本插件、以及其它用 SQLite 的插件，写锁是全局互斥的。
+WAL 只允许「多读 + 单写」，同一时刻仍然只能有一个写者。
+
+本插件已做两件事：
+
+1. **等锁超时设为 30 秒**（`connect(timeout=30)` + `PRAGMA busy_timeout=30000`），
+   与 AstrBot 核心一致。`sqlite3.connect` 默认只等 **5 秒**，
+   实测另一写者持锁 7 秒时默认连接必失败、设 30 秒则正常通过。
+2. **同一群不并发抽取 + 最短间隔**，避免自己连续触发长事务把锁占久。
+
+如果仍然频繁报错，说明确实有写者长时间持锁，按这个顺序排查：
+
+- 谁在密集写？关掉不用的、会写库的插件（日志里每条消息一次
+  `persist_group_message` 就是核心自己在写）
+- 本插件把「启用长期记忆」关掉，能显著减少写事务
+- 机器负载是否已经打满（`docker stats` 看 CPU/内存是否贴着上限）
+
 ---
 
 ## 常见问题
