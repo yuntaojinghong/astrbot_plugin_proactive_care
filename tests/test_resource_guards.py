@@ -217,3 +217,120 @@ def test_store_survives_concurrent_writer(tmp_path):
     assert after == before + 1, f"写入没落库: {before} -> {after}"
     th.join(timeout=15)
     st.close()
+
+
+# ======================================================================
+#  保护五：发送失败不再无限重试（退群后的重试风暴）
+# ======================================================================
+def test_send_failure_stops_retrying(tmp_path):
+    """群已退出/解散时，不能每 30 秒重试一次直到永远。
+
+    用户反馈：「已经退出的群，微光还在一直重试」。
+
+    根因：``fire()`` 发送失败时**不写** ``last_proactive_ts``，
+    于是冷却时间恒为 0，每个 tick 都会再试一次。
+    现在改为连续失败 ``max_send_failures`` 次后自动暂停该会话。
+    """
+    from proactive.scheduler import Scheduler
+    from proactive.textutil import now_ts
+
+    class Gen:
+        async def generate(self, *a, **k):
+            return {"ok": True, "content": "在吗", "error": "",
+                    "reason": "", "trigger": ""}
+
+    async def scenario():
+        db = Store(str(tmp_path / "retry"))
+        tries = []
+
+        async def sender(umo, text):
+            tries.append(umo)
+            return False           # 永远发不出去 == 已经退群
+
+        cfg = Config({
+            "basic": {"enabled": True, "group_whitelist": ["all"]},
+            "guard": {"cooldown_minutes": 0, "max_per_day": 50,
+                      "min_human_gap_minutes": 0, "max_send_failures": 3},
+            "trigger": {"idle_enable": True, "idle_minutes": 1,
+                        "random_enable": False, "schedule_enable": False,
+                        "followup_enable": False},
+        })
+        sch = Scheduler(cfg, db, None, Gen(), sender, None)
+        await db.ensure_session(UMO, "group", "999999", enabled=True)
+        await db.update_session(UMO, last_human_ts=now_ts() - 7200,
+                                last_proactive_ts=0)
+
+        per_tick = []
+        for _ in range(7):
+            before = len(tries)
+            await sch.tick()
+            per_tick.append(len(tries) - before)
+
+        session = await db.get_session(UMO) or {}
+        db.close()
+        return per_tick, session
+
+    per_tick, session = run(scenario())
+
+    assert sum(per_tick[:3]) == 3, f"前 3 轮各该尝试一次: {per_tick}"
+    assert int(session.get("paused") or 0) == 1, (
+        f"达到上限后应自动暂停: paused={session.get('paused')}"
+    )
+    assert "发送失败" in str(session.get("paused_reason") or ""), (
+        f"暂停原因要写清楚: {session.get('paused_reason')}"
+    )
+    assert sum(per_tick[3:]) == 0, (
+        f"暂停后不该再重试（否则就是用户看到的无限重试）: {per_tick[3:]}"
+    )
+    assert session.get("last_send_error"), "应记录最后一次失败原因"
+
+
+def test_success_resets_failure_counter(tmp_path):
+    """发送成功一次就该把失败计数清零，避免误停正常群。"""
+    from proactive.scheduler import Scheduler
+    from proactive.textutil import now_ts
+
+    class Gen:
+        async def generate(self, *a, **k):
+            return {"ok": True, "content": "在吗", "error": "",
+                    "reason": "", "trigger": ""}
+
+    async def scenario():
+        db = Store(str(tmp_path / "reset"))
+        ok = {"v": False}
+
+        async def sender(umo, text):
+            return ok["v"]
+
+        cfg = Config({
+            "basic": {"enabled": True, "group_whitelist": ["all"]},
+            "guard": {"cooldown_minutes": 0, "max_per_day": 50,
+                      "min_human_gap_minutes": 0, "max_send_failures": 3},
+            "trigger": {"idle_enable": True, "idle_minutes": 1,
+                        "random_enable": False, "schedule_enable": False,
+                        "followup_enable": False},
+        })
+        sch = Scheduler(cfg, db, None, Gen(), sender, None)
+        await db.ensure_session(UMO, "group", "999999", enabled=True)
+        await db.update_session(UMO, last_human_ts=now_ts() - 7200,
+                                last_proactive_ts=0)
+
+        await sch.tick()                      # 失败 1 次
+        await sch.tick()                      # 失败 2 次
+        mid = await db.get_session(UMO) or {}
+        assert int(mid.get("send_failures") or 0) == 2, mid
+
+        ok["v"] = True                        # 恢复可发送
+        await db.update_session(UMO, last_proactive_ts=0, cooldown_ok=1)
+        # 冷却为 0，直接再跑一轮
+        await sch.tick()
+        after = await db.get_session(UMO) or {}
+        db.close()
+        return mid, after
+
+    mid, after = run(scenario())
+    assert int(mid.get("send_failures") or 0) == 2, mid
+    assert int(after.get("send_failures") or 0) == 0, (
+        f"发送成功后计数应清零: {after.get('send_failures')}"
+    )
+    assert int(after.get("paused") or 0) == 0, "正常群不该被暂停"

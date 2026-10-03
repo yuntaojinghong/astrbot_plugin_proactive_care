@@ -29,6 +29,7 @@ from .proactive.filters import IgnoreRule
 from .proactive.generator import TRIGGER_LABELS, Generator
 from .proactive.llm import LLMClient
 from .proactive.memory import MemoryManager
+from .proactive.sanitize import scrub_request, strip_system_reminders
 from .proactive.scheduler import Scheduler
 from .proactive.store import Store
 from .proactive.textutil import format_ts, humanize_delta, now_ts
@@ -351,6 +352,15 @@ class ProactiveCarePlugin(Star):
             text = self._extract_sent_text(event)
             if not text:
                 return
+            # 机器人回复里可能混入系统注入的元信息（群名/时间/上下文块）。
+            # 一旦存进历史，下一轮会被当成"上文"喂回模型，越滚越长且人格漂移，
+            # 所以入库前就清掉——这是切断循环最关键的一步。
+            raw_len = len(text)
+            text = strip_system_reminders(text).strip()
+            if not text:
+                return
+            if len(text) != raw_len:
+                logger.info(f"[微光] 已从回复中剔除 {raw_len - len(text)} 字符系统注入内容")
             await self.store.add_message(umo, "bot", text, sender_name="微光")
             updates: dict[str, Any] = {"last_bot_ts": now_ts()}
             if looks_like_question(text):
@@ -366,7 +376,24 @@ class ProactiveCarePlugin(Star):
 
         为什么需要这一步：主动消息是 AstrBot 直接发出去的，不会进入它自己的
         对话历史。不补的话，用户回一句「什么？」机器人会一脸茫然。
+
+        同时做一件事：**清掉注入内容里残留的 ``<system_reminder>`` 块**。
+        AstrBot 内置会把「群名 + 当前时间」和「你上一条回复之后的群聊上下文」
+        作为 system_reminder 注入进请求；这些是**给模型看的元信息**，
+        但模型有时会把它们当成对话内容照抄出来，于是回复正文里带上：
+            <system_reminder>Group name: xxx
+            Current datetime: 2026-10-03 22:39 (CST), Weekday: Saturday</system_reminder>
+        更糟的是这些内容会被写进对话历史，下一轮又被当成"上文"喂回去，
+        越滚越长、人格也跟着漂。这里在注入前把残留清掉，切断这个循环。
         """
+        # —— 先清理：这一步与 inject_into_context 无关，任何情况下都该做
+        try:
+            n = scrub_request(req)
+            if n:
+                logger.info(f"[微光] 已清理 {n} 处残留的 system_reminder/上下文块")
+        except Exception as exc:
+            logger.debug(f"[微光] 清理 system_reminder 失败（已忽略）: {exc}")
+
         if not self.cfg.inject_into_context:
             return
         try:

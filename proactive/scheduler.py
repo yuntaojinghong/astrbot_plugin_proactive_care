@@ -174,6 +174,44 @@ class Scheduler:
         return await self.fire(session, trigger, reason, note)
 
     # ==================================================================
+    #  发送失败：计数并在连续失败后自动停掉该群
+    # ==================================================================
+    async def _register_send_failure(self, session: dict, umo: str, error: str) -> None:
+        """记录一次发送失败；连续失败到上限就自动暂停该会话。
+
+        为什么必须这样：发送失败时**不会**写 ``last_proactive_ts``，
+        于是冷却时间永远是 0 —— 调度器每 30 秒就会再试一次。
+        用户退群/群被解散后，日志里就会看到插件「一直重试」，永不停止。
+
+        这里改成：连续失败 ``max_send_failures`` 次后把会话暂停，
+        并在原因里写清楚，面板与 ``/主动 状态`` 都能看到。
+        """
+        limit = max(1, int(getattr(self.config, "max_send_failures", 3) or 3))
+        count = int(session.get("send_failures") or 0) + 1
+        updates: dict[str, Any] = {
+            "send_failures": count,
+            "last_send_error": str(error or "")[:200],
+        }
+        if count >= limit:
+            updates.update({
+                "paused": 1,
+                "paused_reason": (
+                    f"连续 {count} 次发送失败，已自动停用"
+                    f"（最后错误：{str(error or '')[:80]}）"
+                    "。修好后可在面板或「/主动 恢复」重新开启。"
+                ),
+            })
+            self._warn(
+                f"{umo} 连续 {count} 次发送失败，已自动停用该会话（{error}）"
+            )
+        else:
+            self._warn(f"{umo} 发送失败第 {count}/{limit} 次：{error}")
+        try:
+            await self.store.update_session(umo, **updates)
+        except Exception as exc:
+            self._warn(f"记录发送失败时异常（已忽略）: {exc}")
+
+    # ==================================================================
     #  回应窗口结算
     # ==================================================================
     async def _settle_reply_window(self, session: dict) -> dict:
@@ -412,7 +450,14 @@ class Scheduler:
         await self.store.add_history(umo, trigger, reason, text, sent=sent)
         if not sent:
             record["error"] = record["error"] or "发送未成功"
+            await self._register_send_failure(session, umo, record["error"])
             return record
+
+        # 发送成功：清掉失败计数与上次的错误说明
+        if session.get("send_failures") or session.get("last_send_error"):
+            await self.store.update_session(
+                umo, send_failures=0, last_send_error=""
+            )
 
         updates: dict[str, Any] = {
             "last_proactive_ts": now_ts(),

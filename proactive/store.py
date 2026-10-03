@@ -39,6 +39,8 @@ SESSION_FIELDS = {
     "override_json",
     "msg_counter",
     "last_extract_ts",
+    "send_failures",
+    "last_send_error",
 }
 
 # 允许自增的列——只有数值列能参与 `col = col + ?`，其余一律拒绝
@@ -55,6 +57,7 @@ SESSION_NUMERIC_FIELDS = {
     "total_sent",
     "msg_counter",
     "last_extract_ts",
+    "send_failures",
 }
 
 SCHEMA = """
@@ -168,7 +171,35 @@ class Store:
             self._conn.execute(
                 f"PRAGMA busy_timeout={int(self.LOCK_TIMEOUT_SECONDS * 1000)}"
             )
+            self._migrate()
             self._conn.commit()
+
+    #: 后加的列：(列名, 建列语句)。老库需要 ALTER TABLE 补上。
+    _ADDED_COLUMNS = (
+        # 连续发送失败次数。群被解散/机器人被踢后，主动消息会一直发不出去；
+        # 不计数的话调度器会每 30 秒重试一次，永远不停。
+        ("send_failures", "ALTER TABLE sessions ADD COLUMN send_failures INTEGER NOT NULL DEFAULT 0"),
+        # 最后一次发送失败的原因，便于面板/日志说明「为什么停了这个群」
+        ("last_send_error", "ALTER TABLE sessions ADD COLUMN last_send_error TEXT NOT NULL DEFAULT ''"),
+    )
+
+    def _migrate(self) -> None:
+        """补齐老库缺失的列（幂等）。
+
+        用 ``PRAGMA table_info`` 判断而不是 try/except：SQLite 报
+        「duplicate column name」也算异常，但那样会把真正的错误一起吞掉。
+        """
+        try:
+            cols = {row["name"] for row in self._query("PRAGMA table_info(sessions)")}
+        except Exception:
+            return
+        for name, ddl in self._ADDED_COLUMNS:
+            if name in cols:
+                continue
+            try:
+                self._conn.execute(ddl)
+            except Exception:
+                pass
 
     # ==================================================================
     #  内部工具

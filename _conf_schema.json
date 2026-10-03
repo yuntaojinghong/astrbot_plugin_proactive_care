@@ -264,6 +264,17 @@
           "step": 10
         }
       },
+      "max_send_failures": {
+        "description": "连续发送失败多少次后自动停用该会话",
+        "type": "int",
+        "default": 3,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "hint": "退群或群被解散后消息发不出去，若不限制会每 30 秒重试一次、永不停止。达到该次数即自动暂停该群，修好后可手动恢复"
+      },
       "min_human_gap_minutes": {
         "description": "距最后一条真人消息的最短间隔（分钟）",
         "type": "int",

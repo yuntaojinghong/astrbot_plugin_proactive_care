@@ -379,6 +379,16 @@ class Config:
         return _to_int(self.section("memory").get("extract_max_messages"), 200, 5, 500)
 
     @property
+    def max_send_failures(self) -> int:
+        """连续发送失败多少次后自动停用该会话。
+
+        退群 / 群被解散后主动消息会一直发不出去；而发送失败**不会**写
+        ``last_proactive_ts``，冷却时间永远是 0，调度器于是每 30 秒重试一次、
+        永不停止。到达上限后自动暂停该会话，避免无限重试刷日志。
+        """
+        return _to_int(self.section("guard").get("max_send_failures"), 3, 1, 100)
+
+    @property
     def max_inject(self) -> int:
         return _to_int(self.section("memory").get("max_inject"), 6, 0, 50)
 
