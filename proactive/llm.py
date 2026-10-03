@@ -157,15 +157,72 @@ class LLMClient:
             self._warn(self.last_error)
             return None
 
-        text = getattr(response, "completion_text", None)
+        text = self._extract_text(response)
         if not text:
-            text = str(response or "")
-        text = text.strip()
-        if not text:
-            self.last_error = "模型返回了空内容"
+            # 取不到文本时**绝不能**把响应对象 str() 出去：
+            # 那会把 LLMResponse(role='assistant', result_chain=MessageChain(...))
+            # 这样的 Python repr 当成聊天内容发到群里（真实事故）。
+            self.last_error = "模型返回了无法解析的内容"
+            self._warn(self.last_error)
             return None
         self.last_error = ""
         return text
+
+    @staticmethod
+    def _plain_of(chain: Any) -> str:
+        """尽最大努力从消息链/响应里取出纯文本。取不到就返回空串。"""
+        if chain is None:
+            return ""
+        # MessageChain.get_plain_text()
+        getter = getattr(chain, "get_plain_text", None)
+        if callable(getter):
+            try:
+                value = getter()
+                if value:
+                    return str(value)
+            except Exception:
+                pass
+        # 字符串
+        if isinstance(chain, str):
+            return chain
+        # 带 .text 的单个组件
+        text = getattr(chain, "text", None)
+        if isinstance(text, str) and text:
+            return text
+        # 组件列表
+        items = getattr(chain, "chain", None)
+        if isinstance(items, (list, tuple)):
+            chunks = []
+            for item in items:
+                piece = getattr(item, "text", None)
+                if isinstance(piece, str):
+                    chunks.append(piece)
+            return "".join(chunks)
+        return ""
+
+    @classmethod
+    def _extract_text(cls, response: Any) -> str:
+        """从供应商响应里取纯文本。
+
+        不同供应商/版本回的字段不一样，按可靠性依次尝试：
+        ``completion_text`` → ``result_chain`` → ``raw_completion`` → ``message_str``。
+        全都不行就返回空串，由调用方报错——不要退化成 str(对象)。
+        """
+        if response is None:
+            return ""
+        if isinstance(response, str):
+            return response.strip()
+
+        candidates = (
+            getattr(response, "completion_text", None),
+            cls._plain_of(getattr(response, "result_chain", None)),
+            cls._plain_of(getattr(response, "raw_completion", None)),
+            cls._plain_of(getattr(response, "message_str", None)),
+        )
+        for value in candidates:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
 
     @staticmethod
     def _accepts(func: Any, keyword: str) -> bool:
