@@ -185,6 +185,17 @@ class ProactiveCarePlugin(Star):
             logger.debug(f"[微光] 跳过一条消息（{reason}）")
             return
 
+        # 机器人自己发的消息**不进"群友发言"这条账**。
+        #
+        # 这类消息正常会被上面的忽略规则挡掉，但不能只依赖配置：一旦
+        # ignore_self_sent 被关掉，机器人自己的话就会被当成真人发言写进
+        # last_human_ts，而「即时搭话」正是以"刚有真人说话"为前提的——
+        # 结果就是自己说一句、再触发一次搭话，形成单口相声闭环。
+        # 另外，把机器人自己的话记成 "user" 也会污染记忆抽取的语料。
+        if self._is_self_sent(event):
+            logger.debug("[微光] 机器人自己的消息，不计入群友发言")
+            return
+
         await self.store.ensure_session(umo, scope, target_id, enabled=True)
         session = await self.store.get_session(umo) or {}
 
@@ -206,23 +217,36 @@ class ProactiveCarePlugin(Star):
             pending_question=0,
             unanswered_streak=0,
         )
+        # 重新读一次：上面刚写过 last_human_ts，而 session 是写之前取的快照。
+        # 后面的即时搭话闸门要用到它，不刷新就会拿旧值判断。
+        session = await self.store.get_session(umo) or session
 
         await self.store.prune_messages(umo, keep=200)
         await self.memory.maybe_extract(umo, session)
 
         # 即时搭话：群友一发言就掷一次骰子，命中就隔几秒接一句。
         #
-        # 但这些情况**不搭话**——否则会出现「一个 @ 换来两种语气」：
-        # 用户 @机器人 时正常管线已经回了一条（用机器人自己的人设），
-        # 若即时搭话再补一条（用 generator 里那套"群友人设"提示词），
-        # 群里就会先看到一句正常回复，紧接着又被另一个口吻接了一句。
+        # 这些情况**一律不搭话**，否则会出「自言自语」：机器人自己发的消息
+        # 若也被当成"群友发言"，就会一环扣一环地自己跟自己聊下去。
         if not self.cfg.instant_enable:
             return
+        # ① 机器人自己发的消息：绝不触发。
+        #    必须放在最前面——忽略规则在更后面才判，那之前任务就已经排上了。
+        if self._is_self_sent(event):
+            logger.debug("[微光] 机器人自己的消息，不触发即时搭话")
+            return
+        # ② @机器人 / 唤醒消息：交给正常管线回，否则一次 @ 会得到两种语气
         if self._was_addressed(event):
             logger.debug("[微光] 这条是 @机器人/唤醒消息，交给正常管线，不即时搭话")
             return
+        # ③ 机器人刚说过话（正常回复或上一次主动消息）
         if self._bot_replied_recently(session):
-            logger.debug("[微光] 机器人刚回过话，本次不即时搭话")
+            logger.debug("[微光] 机器人刚说过话，本次不即时搭话")
+            return
+        # ④ 最近根本没有真人说过话：没人在场就不该发言，
+        #    否则延时任务会变成"隔一阵自动冒一句"的定时自言自语。
+        if not self._human_spoke_recently(session):
+            logger.debug("[微光] 最近没有真人发言，不即时搭话")
             return
 
         if self.cfg.enabled and umo not in self._instant_pending:
@@ -235,10 +259,37 @@ class ProactiveCarePlugin(Star):
             self._instant_tasks.add(task)
             task.add_done_callback(self._instant_tasks.discard)
 
-    def _bot_replied_recently(self, session: dict) -> bool:
-        """机器人是否刚通过正常管线回过话。
+    def _is_self_sent(self, event: AstrMessageEvent) -> bool:
+        """这条消息是不是机器人自己发出来的。
 
-        正常回复会由 ``after_message_sent`` 写 ``last_bot_ts``。
+        即时搭话最怕把自己发的消息也当成"群友发言"——那会形成闭环：
+        自己说一句 → 触发一次搭话 → 再说一句……群里就成了机器人的单口相声。
+        """
+        self_id = self._safe(event.get_self_id)
+        sender_id = self._safe(event.get_sender_id)
+        return bool(self_id) and self_id == sender_id
+
+    def _human_spoke_recently(self, session: dict) -> bool:
+        """最近是否真的有真人说过话。
+
+        即时搭话的前提是「刚有人在聊」。若距最后一条真人消息已经超过
+        ``max(60, min_human_gap_minutes*60)`` 秒，说明群里早没人了，
+        这时再开口不属于"搭话"，只是定时自言自语。
+
+        这个判断是纯时间比较，不依赖"当前这条消息是谁发的"——机器人自己的
+        消息在 :meth:`_record_incoming` 里已被排除，不会刷新 ``last_human_ts``。
+        """
+        last_human = float((session or {}).get("last_human_ts") or 0)
+        if not last_human:
+            return False
+        limit = max(60.0, float(self.cfg.min_human_gap_minutes) * 60.0)
+        return (now_ts() - last_human) <= limit
+
+    def _bot_replied_recently(self, session: dict) -> bool:
+        """机器人是否刚回过话。
+
+        正常回复由 ``after_message_sent`` 写 ``last_bot_ts``；
+        主动消息由 ``scheduler.fire`` 写同一个字段。
         距现在不足 ``instant_reply_guard_seconds`` 就认为"刚说过"，
         此时插话必然造成重复回应。
         """
