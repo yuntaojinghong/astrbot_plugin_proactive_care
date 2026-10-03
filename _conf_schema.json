@@ -318,6 +318,28 @@
         },
         "hint": "抽取会调用一次模型；调大可降低成本，调小记忆更及时"
       },
+      "extract_min_interval": {
+        "description": "两次记忆抽取的最短间隔（秒）",
+        "type": "int",
+        "default": 120,
+        "slider": {
+          "min": 0,
+          "max": 3600,
+          "step": 30
+        },
+        "hint": "秒。抽取会等待模型返回，是消息路径上最重的一步；消息密集时若不限间隔会一条接一条地触发长调用。填 0 不限制"
+      },
+      "extract_max_messages": {
+        "description": "单次抽取最多读取多少条消息",
+        "type": "int",
+        "default": 200,
+        "slider": {
+          "min": 10,
+          "max": 500,
+          "step": 10
+        },
+        "hint": "实测 200 条约 1 万字符、8 千多 token。小内存机器建议调到 50~100，可显著压低峰值"
+      },
       "max_inject": {
         "description": "生成时最多注入多少条记忆",
         "type": "int",

@@ -259,7 +259,19 @@ def test_followup_waits_for_its_own_threshold(store, monkeypatch):
             pending_question=1,
             pending_question_ts=now_ts() - 5 * 60,
         )
-        scheduler = make_scheduler(store, sent, trigger={"followup_minutes": 30, "idle_enable": False})
+        # 必须把 random 也关掉：它按"当天预排的随机时刻表"触发，只要那个时刻
+        # 已经过了就会命中，于是本用例会随跑测试的时间点偶发失败。
+        # 本用例只关心 followup，其它触发方式一律关掉才是确定的。
+        scheduler = make_scheduler(
+            store,
+            sent,
+            trigger={
+                "followup_minutes": 30,
+                "idle_enable": False,
+                "random_enable": False,
+                "schedule_enable": False,
+            },
+        )
         return await scheduler.tick()
 
     assert run(scenario()) == []

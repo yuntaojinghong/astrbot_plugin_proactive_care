@@ -359,6 +359,26 @@ class Config:
         return _to_int(self.section("memory").get("extract_every"), 30, 1)
 
     @property
+    def extract_min_interval(self) -> int:
+        """两次记忆抽取之间的最短间隔（秒），0 表示不限制。
+
+        抽取会把最近若干条消息渲染成提示词交给模型，是**消息路径上最重的一步**
+        （实测一次约 1 万字符、上万 token，且要等模型返回）。
+        消息密集时若不加间隔，会一条接一条地触发长调用；而 AstrBot 的 EventBus
+        给每个事件起独立任务、没有并发上限，小内存机器容易被拖垮。
+        """
+        return _to_int(self.section("memory").get("extract_min_interval"), 120, 0, 86400)
+
+    @property
+    def extract_max_messages(self) -> int:
+        """单次抽取最多把多少条消息送进提示词。
+
+        实测：200 条 ≈ 1 万字符 ≈ 8 千多 token。调小可直接压低 token 与内存峰值，
+        对 2 核 2G 这类机器尤其有效。
+        """
+        return _to_int(self.section("memory").get("extract_max_messages"), 200, 5, 500)
+
+    @property
     def max_inject(self) -> int:
         return _to_int(self.section("memory").get("max_inject"), 6, 0, 50)
 

@@ -70,30 +70,81 @@ class MemoryManager:
         self.llm = llm
         self.context = context_builder
         self.logger = logger
+        # 正在抽取的会话，避免同一群并发跑多次模型调用
+        self._extracting: set[str] = set()
 
     # ==================================================================
     #  抽取
     # ==================================================================
     async def maybe_extract(self, umo: str, session: dict | None = None) -> int:
-        """攒够一定条数才抽取。返回本次新增/更新的记忆条数。"""
+        """攒够一定条数才抽取。返回本次新增/更新的记忆条数。
+
+        .. warning::
+            本方法**会等待模型返回**（数秒到数十秒），因此它是消息处理路径上
+            最重的一步。调用方（``main._record_incoming``）是 ``await`` 它的，
+            而 AstrBot 的 EventBus 对每个事件起一个独立任务、**没有并发上限**，
+            所以「模型慢 + 消息多」时任务会堆积，2 核 2G 的机器容易被拖垮。
+
+            这里加三道自我保护：
+
+            1. **同一群不并发**：该群已有抽取在跑就直接返回，避免叠加
+            2. **最短间隔**：距上次抽取不足 ``extract_min_interval`` 秒就跳过，
+               防止消息密集时一条接一条地触发长调用
+            3. 条数门槛仍然生效
+
+            要彻底消除该阻塞，把面板里「记忆抽取」关掉即可——
+            群管与主动发言都不依赖它。
+        """
         if not self.config.memory_enable:
             return 0
+        if umo in self._extracting:
+            return 0
+
         session = session or await self.store.get_session(umo) or {}
+
+        # 最短间隔：避免密集消息连续触发
+        interval = int(getattr(self.config, "extract_min_interval", 0) or 0)
+        if interval > 0:
+            last = float(session.get("last_extract_ts") or 0)
+            if last and (now_ts() - last) < interval:
+                return 0
+
         since = float(session.get("last_extract_ts") or 0)
         pending = await self.store.count_messages(umo, since_ts=since)
         if pending < self.config.extract_every:
             return 0
+
         return await self.extract(umo, session=session)
 
     async def extract(self, umo: str, session: dict | None = None) -> int:
-        """立刻抽取一次，不判断阈值（面板手动触发与 /记忆 指令走这条路）。"""
+        """立刻抽取一次，不判断条数阈值（面板手动触发与 /记忆 指令走这条路）。
+
+        并发去重放在**这里**而不是 ``maybe_extract``：``extract`` 还有别的调用方
+        （面板按钮、``/记忆 抽取`` 指令），只在 maybe_extract 挡一道，
+        别的入口同时点一下照样会叠加多次模型调用。
+        """
         if not self.config.memory_enable:
             return 0
+        if umo in self._extracting:
+            return 0
+        self._extracting.add(umo)
+        try:
+            return await self._extract_inner(umo, session=session)
+        finally:
+            self._extracting.discard(umo)
+
+    async def _extract_inner(self, umo: str, session: dict | None = None) -> int:
         session = session or await self.store.get_session(umo) or {}
         since = float(session.get("last_extract_ts") or 0)
-        rows = await self.store.recent_messages(umo, limit=200, since_ts=since)
+        # 上限可配：越多条 → 提示词越大 → token 与内存峰值越高（200 条约 1 万字符）
+        limit = int(getattr(self.config, "extract_max_messages", 200) or 200)
+        rows = await self.store.recent_messages(umo, limit=limit, since_ts=since)
         if not rows:
             return 0
+
+        # 只保留最近 limit 条：recent_messages 从旧到新返回，取尾部即最新的一批
+        if len(rows) > limit:
+            rows = rows[-limit:]
 
         transcript = self._render(rows)
         if not transcript.strip():
