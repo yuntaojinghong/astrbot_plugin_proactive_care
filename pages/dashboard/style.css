@@ -618,6 +618,10 @@ body {
 /* 非对称 Bento：宽卡片占两列 */
 .bento {
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  /* 每张卡片按自身内容高度排布。
+     默认的 stretch 会让同一行里较矮的卡片被拉高，底部留出大片空白，
+     几张卡片的按钮行因此不在同一水平线上，看起来像错位。 */
+  align-items: start;
 }
 
 .span-2 {
