@@ -70,6 +70,53 @@ async function post(endpoint, body) {
   return bridge.apiPost(endpoint, body || {});
 }
 
+/**
+ * 页面内自绘确认框，返回 Promise<boolean>。
+ *
+ * 面板跑在 AstrBot 的受限 iframe 里。宿主若未授予 `allow-modals`，
+ * `window.confirm()` 会被直接拦掉并返回 false，且不报任何错 ——
+ * 表现就是「删除按钮点了没反应」。自绘框不依赖该权限。
+ *
+ * Esc 或点遮罩取消；Enter 确认。
+ */
+function askConfirm({ title, message, confirmText = "确定", cancelText = "取消", danger = true } = {}) {
+  return new Promise((resolve) => {
+    let done = false;
+    let overlay = null;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener("keydown", onKey, true);
+      if (overlay && overlay.remove) overlay.remove();
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); finish(false); }
+      else if (event.key === "Enter") { event.preventDefault(); finish(true); }
+    };
+
+    overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+      <div class="modal-title">${esc(title || "确认")}</div>
+      <div class="modal-msg">${esc(message || "")}</div>
+      <div class="modal-actions">
+        <button class="btn" data-cancel="1">${esc(cancelText)}</button>
+        <button class="btn ${danger ? "danger" : "primary"}" data-ok="1">${esc(confirmText)}</button>
+      </div>
+    </div>`;
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) finish(false);
+      else if (event.target.closest("[data-cancel]")) finish(false);
+      else if (event.target.closest("[data-ok]")) finish(true);
+    });
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(overlay);
+    const okBtn = overlay.querySelector("[data-ok]");
+    if (okBtn) okBtn.focus();
+  });
+}
+
 async function guard(fn, okMessage) {
   try {
     const result = await fn();
@@ -1176,12 +1223,12 @@ async function onAction(event) {
       break;
 
     case "reset":
-      if (!window.confirm("清空该会话的聊天上下文与发送记录？记忆会保留。")) break;
+      if (!(await askConfirm({ title: "清空上下文", message: "清空该会话的聊天上下文与发送记录？记忆会保留。", confirmText: "清空" }))) break;
       await withBusy(() => post("session/reset", { umo: node.dataset.umo }), "已清空");
       break;
 
     case "delete":
-      if (!window.confirm("彻底删除该会话？上下文、记忆、发送记录都会一并删除，无法恢复。")) break;
+      if (!(await askConfirm({ title: "删除会话", message: "彻底删除该会话？上下文、记忆、发送记录都会一并删除，无法恢复。", confirmText: "删除" }))) break;
       await withBusy(() => post("session/delete", { umo: node.dataset.umo }), "已删除");
       break;
 
@@ -1209,14 +1256,14 @@ async function onAction(event) {
     }
 
     case "mem-del":
-      if (!window.confirm("删除这条记忆？")) break;
+      if (!(await askConfirm({ title: "删除记忆", message: "删除这条记忆？", confirmText: "删除" }))) break;
       await withBusy(() => post("memory/delete", { id: Number(node.dataset.id) }), "已删除");
       break;
 
     case "mem-clear": {
       const umo = $("#mem-umo")?.value;
       if (!umo) return toast("请在左侧选择一个具体会话后再清空", "err");
-      if (!window.confirm("清空该会话的全部记忆？")) break;
+      if (!(await askConfirm({ title: "清空记忆", message: "清空该会话的全部记忆？", confirmText: "清空" }))) break;
       await withBusy(() => post("memory/clear", { umo }), "已清空");
       break;
     }
@@ -1263,7 +1310,7 @@ async function onAction(event) {
       break;
 
     case "sch-del":
-      if (!window.confirm("删除这条定时规则？")) break;
+      if (!(await askConfirm({ title: "删除定时规则", message: "删除这条定时规则？", confirmText: "删除" }))) break;
       await withBusy(() => post("schedule/delete", { id: Number(node.dataset.id) }), "已删除");
       break;
 
@@ -1273,7 +1320,7 @@ async function onAction(event) {
       break;
 
     case "his-clear":
-      if (!window.confirm("清空发送记录？记忆与上下文不受影响。")) break;
+      if (!(await askConfirm({ title: "清空发送记录", message: "清空发送记录？记忆与上下文不受影响。", confirmText: "清空" }))) break;
       await withBusy(() => post("history/clear", { umo: $("#his-umo")?.value || "" }), "已清空");
       break;
 
