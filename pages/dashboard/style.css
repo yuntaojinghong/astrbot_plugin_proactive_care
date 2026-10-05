@@ -1031,14 +1031,38 @@ input[type="range"] {
   flex-wrap: wrap;
 }
 
+/*
+ * 默认让子元素平分宽度——这是给「一行几个输入框 / 按钮」用的。
+ * min-width:120px 是为了窄屏时元素不要被压成一条线。
+ *
+ * 但徽章（.tag）不能吃这条规则：它本身只有两三个字，被撑到 120px 后
+ * 「群聊 + 生效中」两个就要 240px+，在 340px 宽的会话卡里会被挤出边界
+ * （会话卡片头部就是这种情况，表现为右上角的「生效中」错位/溢出）。
+ */
 .inline > * {
   flex: 1;
   min-width: 120px;
 }
 
-.inline > .btn {
+/* 按钮与徽章按内容宽度排版，不参与平分 */
+.inline > .btn,
+.inline > .tag,
+.inline > .badge {
   flex: none;
   min-width: auto;
+  white-space: nowrap;
+}
+
+/* 会话卡头部右侧的徽章组不该被左侧长 ID 挤出去 */
+.session-head > .inline {
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+/* 会话卡里的群名/群号可能很长，给它收缩的空间，别去挤徽章 */
+.session-head > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .switch-line {

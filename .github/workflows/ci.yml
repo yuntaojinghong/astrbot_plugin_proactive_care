@@ -57,6 +57,19 @@ jobs:
       - name: 运行单元测试
         run: python -m pytest tests -q
 
+      # 面板相关的两个 js 测试此前只躺在仓库里，CI 从没跑过 ——
+      # 等于装了个不会响的警报器。style_regression 是这次「生效中」徽章
+      # 错位的回归检查，必须真的被执行才有意义。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 面板样式与交互测试（node）
+        run: |
+          node tests/style_regression.test.js
+          npm install --no-save --no-audit --no-fund jsdom
+          node tests/panel_confirm.test.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
